@@ -182,14 +182,8 @@ class Wave:
             self.conditions.grid.height,
             int(self.conditions.grid.height // self.conditions.h),
         )
-        input_values = (
-            A
-            * np.exp(-((x - x0) ** 2) * rad**2)
-            * np.exp(-((y - y0) ** 2) * rad**2)
-        )
-        return Wave(
-            self.conditions, self.values + input_values, self.pre_values + input_values
-        )
+        input_values = A * np.exp(-((x - x0) ** 2) * rad**2) * np.exp(-((y - y0) ** 2) * rad**2)
+        return Wave(self.conditions, self.values + input_values, self.pre_values + input_values)
 
     def update(self):
         uR = np.roll(self.values, -1, 1)
@@ -199,9 +193,7 @@ class Wave:
 
         # 一旦全ての点を拘束なしの条件でまとめて計算
         new_values = (
-            2 * self.values
-            - self.pre_values
-            + self.conditions.grid.alpha * (uL + uR + uB + uT - 4 * self.values)
+            2 * self.values - self.pre_values + self.conditions.grid.alpha * (uL + uR + uB + uT - 4 * self.values)
         )
 
         indices_items = self.conditions.grid.get_boundary_indices()
@@ -211,12 +203,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                2 * self.values[X - 1, Y]
-                + self.values[X, Y - 1]
-                + self.values[X, Y + 1]
-                - 4 * self.values[X, Y]
-            )
+            * (2 * self.values[X - 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
 
         # 左端
@@ -225,12 +212,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                2 * self.values[X + 1, Y]
-                + self.values[X, Y - 1]
-                + self.values[X, Y + 1]
-                - 4 * self.values[X, Y]
-            )
+            * (2 * self.values[X + 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
 
         # 上端
@@ -239,12 +221,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                self.values[X - 1, Y]
-                + self.values[X + 1, Y]
-                + 2 * self.values[X, Y + 1]
-                - 4 * self.values[X, Y]
-            )
+            * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
 
         # 下端
@@ -253,12 +230,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                self.values[X - 1, Y]
-                + self.values[X + 1, Y]
-                + 2 * self.values[X, Y - 1]
-                - 4 * self.values[X, Y]
-            )
+            * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
         )
 
         # 左上端
@@ -267,11 +239,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                2 * self.values[X + 1, Y]
-                + 2 * self.values[X, Y + 1]
-                - 4 * self.values[X, Y]
-            )
+            * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
 
         # 右上
@@ -280,11 +248,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                2 * self.values[X - 1, Y]
-                + 2 * self.values[X, Y + 1]
-                - 4 * self.values[X, Y]
-            )
+            * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
 
         # 右下
@@ -293,11 +257,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                2 * self.values[X - 1, Y]
-                + 2 * self.values[X, Y - 1]
-                - 4 * self.values[X, Y]
-            )
+            * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
         )
 
         # 左下
@@ -306,11 +266,7 @@ class Wave:
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
             + self.conditions.grid.alpha
-            * (
-                2 * self.values[X + 1, Y]
-                + 2 * self.values[X, Y - 1]
-                - 4 * self.values[X, Y]
-            )
+            * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
         )
         return Wave(self.conditions, new_values.copy(), self.values.copy())
 
