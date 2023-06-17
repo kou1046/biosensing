@@ -36,6 +36,24 @@ class Obstacle:
     def ys(self):
         return self.pt1[1], self.pt2[1]
 
+    def is_vertical(self):
+        return self.direction == Direction.RIGHT or self.direction == Direction.LEFT
+
+    def is_horizontal(self):
+        return self.direction == Direction.TOP or self.direction == Direction.BOTTOM
+
+    def is_right(self):
+        return self.direction == Direction.RIGHT
+
+    def is_left(self):
+        return self.direction == Direction.LEFT
+
+    def is_top(self):
+        return self.direction == Direction.TOP
+
+    def is_bottom(self):
+        return self.direction == Direction.BOTTOM
+
 
 @dataclass(frozen=True)
 class Obstacles:
@@ -44,7 +62,7 @@ class Obstacles:
     def get_value(self):
         return self.value.copy()
 
-    def subplots(self):
+    def create_fig_ax(self):
         fig, ax = plt.subplots()
         for obstacle in self.get_value():
             ax.plot(obstacle.xs(), obstacle.ys())
@@ -98,23 +116,26 @@ class Grid:
         端付近のインデックス配列を取得する．
         """
 
-        grid_row_last_index = self.calculate_grid_width() - 1
-        grid_col_last_index = self.calculate_grid_height() - 1
+        grid_width = self.calculate_grid_width()
+        grid_height = self.calculate_grid_height()
+        grid_row_last_index = grid_width - 1
+        grid_col_last_index = grid_height - 1
+
         right_indices = [
-            ([grid_row_last_index] * grid_col_last_index),
-            list(range(0, grid_col_last_index)),
+            ([grid_row_last_index] * (grid_height - 2)),  # 角の処理のため，最初と最後は追加しない -> Xの要素数は grid_height - 2となる. 以降も同様．
+            list(range(1, grid_height - 1)),
         ]
         left_indices = [
-            ([0] * grid_col_last_index),
-            list(range(0, grid_col_last_index)),
+            ([0] * (grid_height - 2)),
+            list(range(1, grid_height - 1)),
         ]
         top_indices = [
-            list(range(0, grid_row_last_index)),
-            ([0] * grid_row_last_index),
+            list(range(1, grid_width - 1)),
+            ([0] * (grid_width - 2)),
         ]
         bottom_indices = [
-            list(range(0, grid_row_last_index)),
-            ([grid_col_last_index] * grid_row_last_index),
+            list(range(1, grid_width - 1)),
+            ([grid_col_last_index] * (grid_width - 2)),
         ]
         righttop_indices = [[grid_row_last_index], [0]]
         lefttop_indices = [[0], [0]]
@@ -158,8 +179,41 @@ class WaveConditions:
         grid_col_last_index = self.grid.calculate_grid_height() - 1
 
         for obstacle in self.obstacles.get_value():
-            index_xlim = (np.array(obstacle.xs()) / self.grid.h).astype(int)
-            index_ylim = (np.array(obstacle.ys()) / self.grid.h).astype(int)
+            if obstacle.is_horizontal():
+                ys = obstacle.ys()
+                assert ys[0] == ys[1], "障害物が並行でない"
+                obstacle_index_xlim = (np.array(sorted(obstacle.xs())) / self.grid.h).astype(int)
+                xmin, xmax = obstacle_index_xlim
+                obstacle_indicies_x = list(range(xmin, xmax + 1))
+                obstacle_indicies_y = [int(ys[0] / self.grid.h)] * len(obstacle_indicies_x)
+
+            if obstacle.is_vertical():
+                xs = obstacle.xs()
+                assert xs[0] == xs[1], "障害物が垂直でない"
+                obstacle_index_ylim = (np.array(sorted(obstacle.ys())) / self.grid.h).astype(int)
+                ymin, ymax = obstacle_index_ylim
+                obstacle_indicies_y = list(range(ymin, ymax + 1))
+                obstacle_indicies_x = [int(xs[0] / self.grid.h)] * len(obstacle_indicies_y)
+
+            if obstacle.is_right():
+                X, Y = boundary_indices[Direction.RIGHT]
+            if obstacle.is_left():
+                X, Y = boundary_indices[Direction.LEFT]
+            if obstacle.is_top():
+                X, Y = boundary_indices[Direction.TOP]
+            if obstacle.is_bottom():
+                X, Y = boundary_indices[Direction.BOTTOM]
+            X.extend(obstacle_indicies_x)
+            Y.extend(obstacle_indicies_y)
+
+        return boundary_indices
+
+    def create_fig_ax(self):
+        fig, ax = plt.subplots()
+
+        for direction, indicies in self.boundary_and_obstacle_indices().items():
+            ax.scatter(*indicies)
+        return fig, ax
 
 
 class Wave:
@@ -186,12 +240,12 @@ class Wave:
         x = np.linspace(
             0,
             self.conditions.grid.width,
-            int(self.conditions.grid.width // self.conditions.h),
+            int(self.conditions.grid.width // self.conditions.grid.h),
         ).reshape(-1, 1)
         y = np.linspace(
             0,
             self.conditions.grid.height,
-            int(self.conditions.grid.height // self.conditions.h),
+            int(self.conditions.grid.height // self.conditions.grid.h),
         )
         input_values = A * np.exp(-((x - x0) ** 2) * rad**2) * np.exp(-((y - y0) ** 2) * rad**2)
         return Wave(self.conditions, self.values + input_values, self.pre_values + input_values)
@@ -216,6 +270,8 @@ class Wave:
             + self.conditions.grid.alpha
             * (2 * self.values[X - 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
+        o_idxes = X + 1 < self.values.shape[0]
+        new_values[X[o_idxes] + 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処
 
         # 左端
         X, Y = np.array(indices_items[Direction.LEFT])
@@ -225,6 +281,8 @@ class Wave:
             + self.conditions.grid.alpha
             * (2 * self.values[X + 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
+        o_idxes = X > 0
+        new_values[X[o_idxes] - 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 上端
         X, Y = np.array(indices_items[Direction.TOP])
@@ -234,6 +292,8 @@ class Wave:
             + self.conditions.grid.alpha
             * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
         )
+        o_idxes = Y > 0
+        new_values[X[o_idxes], Y[o_idxes] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 下端
         X, Y = np.array(indices_items[Direction.BOTTOM])
@@ -243,6 +303,8 @@ class Wave:
             + self.conditions.grid.alpha
             * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
         )
+        o_idxes = Y + 1 < self.values.shape[1]
+        new_values[X[o_idxes], Y[o_idxes] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 左上端
         X, Y = np.array(indices_items[Direction.LEFTTOP])
@@ -282,7 +344,11 @@ class Wave:
         return Wave(self.conditions, new_values.copy(), self.values.copy())
 
 
-grid = Grid(5, 3, 0.01, 0.005)
+width = 5.0
+height = 3.2
+h = 0.01
+dt = 0.005
+grid = Grid(width, height, h, dt)
 
 obstacle_list = [
     Obstacle((2, 1), (3, 1), Direction.BOTTOM),
@@ -290,19 +356,15 @@ obstacle_list = [
     Obstacle((3, 2), (2, 2), Direction.TOP),
     Obstacle((2, 2), (2, 1), Direction.LEFT),
 ]
-
 obstacles = Obstacles(obstacle_list)
 
-conditions = WaveConditions(grid, obstacles)
-conditions.boundary_and_obstacle_indices()
-wave = Wave(conditions)
-
-fig, ax = plt.subplots()
+wave_conditions = WaveConditions(grid, obstacles)
+wave = Wave(wave_conditions)
 wave = wave.input_gauss(0, 1.5, 3)
 ims = []
-for dt in np.arange(0, 3, 0.005):
+fig, ax = plt.subplots()
+for time in np.arange(0, 10 + dt, dt):
     wave = wave.update()
-    im = ax.imshow(wave.values.T)
-    ims.append([im])
-anim = ArtistAnimation(fig, ims, interval=30)
+    ims.append([ax.imshow(wave.values.T, "binary", vmin=-0.01, vmax=0.01)])
+anim = ArtistAnimation(fig, ims, interval=20)
 plt.show()
