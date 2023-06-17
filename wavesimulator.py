@@ -13,7 +13,7 @@ class ReflectCondition(Enum):
     DIRICRE = 1
 
 
-class ReflectDirection(Enum):
+class Direction(Enum):
     RIGHT = 0
     LEFT = 1
     TOP = 2
@@ -28,7 +28,13 @@ class ReflectDirection(Enum):
 class Obstacle:
     pt1: tuple[float, float]
     pt2: tuple[float, float]
-    reflect_direction: ReflectDirection
+    direction: Direction
+
+    def xs(self):
+        return self.pt1[0], self.pt2[0]
+
+    def ys(self):
+        return self.pt1[1], self.pt2[1]
 
 
 class Obstacles:
@@ -38,15 +44,11 @@ class Obstacles:
     def get_value(self):
         return self.value.copy()
 
-    def is_clockwise(self):  # 時計回りかどうか
-        assert len(self.value) > 1, "判定には障害物が2つ以上存在する必要があります"
-        sum_cross_product = 0
-        for o1, o2 in zip(self.value, self.value[1:]):
-            x1, y1 = o1.pt1
-            x2, y2 = o2.pt2
-            cross_product = (x2 - x1) * (y2 + y1)
-            sum_cross_product += cross_product
-        return sum_cross_product > 0
+    def subplots(self):
+        fig, ax = plt.subplots()
+        for obstacle in self.get_value():
+            ax.plot(obstacle.xs(), obstacle.ys())
+        return fig, ax
 
 
 class Strain(metaclass=ABCMeta):
@@ -54,11 +56,11 @@ class Strain(metaclass=ABCMeta):
         self,
         pt1: tuple[float, float],
         pt2: tuple[float, float],
-        reflect_direction: ReflectDirection,
+        direction: Direction,
     ):
         self.pt1 = pt1
         self.pt2 = pt2
-        self.reflect_direction = reflect_direction
+        self.direction = direction
 
     @abstractmethod
     def input(self, x: float, y: float, t: float) -> float:
@@ -91,7 +93,7 @@ class Grid:
     def calculate_grid_height(self):
         return int(self.height // self.h)
 
-    def get_boundary_indices(self) -> dict[ReflectDirection, XYIndices]:
+    def boundary_indices(self) -> dict[Direction, XYIndices]:
         """
         端付近のインデックス配列を取得する．
         """
@@ -120,9 +122,9 @@ class Grid:
         leftbottom_indices = [[0], [grid_col_last_index]]
 
         return {
-            reflect_direction: indices
-            for reflect_direction, indices in zip(
-                ReflectDirection,
+            direction: indices
+            for direction, indices in zip(
+                Direction,
                 [
                     right_indices,
                     left_indices,
@@ -144,11 +146,17 @@ class WaveConditions:
     strain: Strain = None
     reflect_condition: ReflectCondition = ReflectCondition.NEUMANN
 
-    def __post_init__(self):
-        if self.obstacles is None:
-            return
-        if not self.obstacles.is_clockwise():
-            raise ValueError("障害物は時計回りの方向で配置する必要がある．")
+    def boundary_and_obstacle_indices(self) -> dict[Direction, XYIndices]:
+        """
+        障害物及び端付近のインデックスを取得する．
+        """
+        grid_row_last_index = self.grid.calculate_grid_width() - 1
+        grid_col_last_index = self.grid.calculate_grid_height() - 1
+        boundary_indices = self.grid.boundary_indices()
+
+        for obstacle in self.obstacles.get_value():
+            index_xlim = (np.array(obstacle.xs()) / self.grid.h).astype(int)
+            index_ylim = (np.array(obstacle.ys()) / self.grid.h).astype(int)
 
 
 class Wave:
@@ -196,9 +204,9 @@ class Wave:
             2 * self.values - self.pre_values + self.conditions.grid.alpha * (uL + uR + uB + uT - 4 * self.values)
         )
 
-        indices_items = self.conditions.grid.get_boundary_indices()
+        indices_items = self.conditions.grid.boundary_indices()
 
-        X, Y = np.array(indices_items[ReflectDirection.RIGHT])
+        X, Y = np.array(indices_items[Direction.RIGHT])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -207,7 +215,7 @@ class Wave:
         )
 
         # 左端
-        X, Y = np.array(indices_items[ReflectDirection.LEFT])
+        X, Y = np.array(indices_items[Direction.LEFT])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -216,7 +224,7 @@ class Wave:
         )
 
         # 上端
-        X, Y = np.array(indices_items[ReflectDirection.TOP])
+        X, Y = np.array(indices_items[Direction.TOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -225,7 +233,7 @@ class Wave:
         )
 
         # 下端
-        X, Y = np.array(indices_items[ReflectDirection.BOTTOM])
+        X, Y = np.array(indices_items[Direction.BOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -234,7 +242,7 @@ class Wave:
         )
 
         # 左上端
-        X, Y = np.array(indices_items[ReflectDirection.LEFTTOP])
+        X, Y = np.array(indices_items[Direction.LEFTTOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -243,7 +251,7 @@ class Wave:
         )
 
         # 右上
-        X, Y = np.array(indices_items[ReflectDirection.RIGHTTOP])
+        X, Y = np.array(indices_items[Direction.RIGHTTOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -252,7 +260,7 @@ class Wave:
         )
 
         # 右下
-        X, Y = np.array(indices_items[ReflectDirection.RIGHTBOTTOM])
+        X, Y = np.array(indices_items[Direction.RIGHTBOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -261,7 +269,7 @@ class Wave:
         )
 
         # 左下
-        X, Y = np.array(indices_items[ReflectDirection.LEFTBOTTOM])
+        X, Y = np.array(indices_items[Direction.LEFTBOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -271,8 +279,21 @@ class Wave:
         return Wave(self.conditions, new_values.copy(), self.values.copy())
 
 
-conditions = WaveConditions(5, 3, 0.01, 0.005)
+grid = Grid(5, 3, 0.01, 0.005)
+
+obstacle_list = [
+    Obstacle((2, 1), (3, 1), Direction.BOTTOM),
+    Obstacle((3, 1), (3, 2), Direction.RIGHT),
+    Obstacle((3, 2), (2, 2), Direction.TOP),
+    Obstacle((2, 2), (2, 1), Direction.LEFT),
+]
+
+obstacles = Obstacles(obstacle_list)
+
+conditions = WaveConditions(grid, obstacles)
+conditions.boundary_and_obstacle_indices()
 wave = Wave(conditions)
+
 fig, ax = plt.subplots()
 wave = wave.input_gauss(0, 1.5, 3)
 ims = []
