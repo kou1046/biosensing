@@ -37,9 +37,9 @@ class Obstacle:
         return self.pt1[1], self.pt2[1]
 
 
+@dataclass(frozen=True)
 class Obstacles:
-    def __init__(self, obstacles: list[Obstacle]):
-        self.value = obstacles
+    value: list[Obstacle]
 
     def get_value(self):
         return self.value.copy()
@@ -150,9 +150,12 @@ class WaveConditions:
         """
         障害物及び端付近のインデックスを取得する．
         """
+        boundary_indices = self.grid.boundary_indices()
+        if self.obstacles is None:
+            return boundary_indices
+
         grid_row_last_index = self.grid.calculate_grid_width() - 1
         grid_col_last_index = self.grid.calculate_grid_height() - 1
-        boundary_indices = self.grid.boundary_indices()
 
         for obstacle in self.obstacles.get_value():
             index_xlim = (np.array(obstacle.xs()) / self.grid.h).astype(int)
@@ -204,7 +207,7 @@ class Wave:
             2 * self.values - self.pre_values + self.conditions.grid.alpha * (uL + uR + uB + uT - 4 * self.values)
         )
 
-        indices_items = self.conditions.grid.boundary_indices()
+        indices_items = self.conditions.boundary_and_obstacle_indices()
 
         X, Y = np.array(indices_items[Direction.RIGHT])
         new_values[X, Y] = (
