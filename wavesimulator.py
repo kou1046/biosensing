@@ -1,4 +1,5 @@
 from __future__ import annotations
+from abc import abstractmethod, ABCMeta
 from dataclasses import dataclass
 from typing import Callable
 from enum import Enum
@@ -48,31 +49,41 @@ class Obstacles:
         return sum_cross_product > 0
 
 
+class Strain(metaclass=ABCMeta):
+    def __init__(
+        self,
+        pt1: tuple[float, float],
+        pt2: tuple[float, float],
+        reflect_direction: ReflectDirection,
+    ):
+        self.pt1 = pt1
+        self.pt2 = pt2
+        self.reflect_direction = reflect_direction
+
+    @abstractmethod
+    def input(self, x: float, y: float, t: float) -> float:
+        ...
+
+
 X = list[int]
 Y = list[int]
-XYIndexes = list[X, Y]
+XYIndices = list[X, Y]
 
 
 @dataclass(frozen=True)
-class WaveConditions:
+class Grid:
     width: int
     height: int
     h: float
     dt: float
-    obstacles: Obstacles = None
-    reflect_condition: ReflectCondition = ReflectCondition.NEUMANN
-
-    def __post_init__(self):
-        if self.dt > self.h:
-            raise ValueError("クーラン条件に基づき, 時間刻みdtは格子刻み幅hより小さくすること. ")
-        if self.obstacles is None:
-            return
-        if not self.obstacles.is_clockwise():
-            raise ValueError("障害物は時計回りの方向で配置する必要がある．")
 
     @property
     def alpha(self):
         return (self.dt / self.h) ** 2
+
+    def __post_init__(self):
+        if self.dt > self.h:
+            raise ValueError("クーラン条件に基づき, 時間刻みdtは格子刻み幅hより小さくすること. ")
 
     def calculate_grid_width(self):
         return int(self.width // self.h)
@@ -80,49 +91,64 @@ class WaveConditions:
     def calculate_grid_height(self):
         return int(self.height // self.h)
 
-    def get_obstacle_adjacent_idxes(self) -> dict[ReflectDirection, XYIndexes]:
+    def get_boundary_indices(self) -> dict[ReflectDirection, XYIndices]:
+        """
+        端付近のインデックス配列を取得する．
+        """
+
         grid_row_last_index = self.calculate_grid_width() - 1
         grid_col_last_index = self.calculate_grid_height() - 1
-        right_idxes = [
+        right_indices = [
             ([grid_row_last_index] * grid_col_last_index),
             list(range(0, grid_col_last_index)),
         ]
-        left_idxes = [
+        left_indices = [
             ([0] * grid_col_last_index),
             list(range(0, grid_col_last_index)),
         ]
-        top_idxes = [
+        top_indices = [
             list(range(0, grid_row_last_index)),
             ([0] * grid_row_last_index),
         ]
-        bottom_idxes = [
+        bottom_indices = [
             list(range(0, grid_row_last_index)),
             ([grid_col_last_index] * grid_row_last_index),
         ]
-        righttop_idxes = [[grid_row_last_index], [0]]
-        lefttop_idxes = [[0], [0]]
-        rightbottom_idxes = [[grid_row_last_index], [grid_col_last_index]]
-        leftbottom_idxes = [[0], [grid_col_last_index]]
-
-        if self.obstacles is not None:
-            pass
+        righttop_indices = [[grid_row_last_index], [0]]
+        lefttop_indices = [[0], [0]]
+        rightbottom_indices = [[grid_row_last_index], [grid_col_last_index]]
+        leftbottom_indices = [[0], [grid_col_last_index]]
 
         return {
-            reflect_direction: idxes
-            for reflect_direction, idxes in zip(
+            reflect_direction: indices
+            for reflect_direction, indices in zip(
                 ReflectDirection,
                 [
-                    right_idxes,
-                    left_idxes,
-                    top_idxes,
-                    bottom_idxes,
-                    righttop_idxes,
-                    lefttop_idxes,
-                    rightbottom_idxes,
-                    leftbottom_idxes,
+                    right_indices,
+                    left_indices,
+                    top_indices,
+                    bottom_indices,
+                    righttop_indices,
+                    lefttop_indices,
+                    rightbottom_indices,
+                    leftbottom_indices,
                 ],
             )
         }
+
+
+@dataclass(frozen=True)
+class WaveConditions:
+    grid: Grid
+    obstacles: Obstacles = None
+    strain: Strain = None
+    reflect_condition: ReflectCondition = ReflectCondition.NEUMANN
+
+    def __post_init__(self):
+        if self.obstacles is None:
+            return
+        if not self.obstacles.is_clockwise():
+            raise ValueError("障害物は時計回りの方向で配置する必要がある．")
 
 
 class Wave:
@@ -135,8 +161,8 @@ class Wave:
         if values is None:
             self.values = np.zeros(
                 (
-                    wave_conditions.calculate_grid_width(),
-                    wave_conditions.calculate_grid_height(),
+                    wave_conditions.grid.calculate_grid_width(),
+                    wave_conditions.grid.calculate_grid_height(),
                 )
             )
             self.pre_values = self.values.copy()
@@ -147,10 +173,14 @@ class Wave:
 
     def input_gauss(self, x0: float, y0: float, rad: float, A: float = 1.0):
         x = np.linspace(
-            0, self.conditions.width, int(self.conditions.width // self.conditions.h)
+            0,
+            self.conditions.grid.width,
+            int(self.conditions.grid.width // self.conditions.h),
         ).reshape(-1, 1)
         y = np.linspace(
-            0, self.conditions.height, int(self.conditions.height // self.conditions.h)
+            0,
+            self.conditions.grid.height,
+            int(self.conditions.grid.height // self.conditions.h),
         )
         input_values = (
             A
@@ -171,16 +201,16 @@ class Wave:
         new_values = (
             2 * self.values
             - self.pre_values
-            + self.conditions.alpha * (uL + uR + uB + uT - 4 * self.values)
+            + self.conditions.grid.alpha * (uL + uR + uB + uT - 4 * self.values)
         )
 
-        idxes_items = self.conditions.get_obstacle_adjacent_idxes()
+        indices_items = self.conditions.grid.get_boundary_indices()
 
-        X, Y = np.array(idxes_items[ReflectDirection.RIGHT])
+        X, Y = np.array(indices_items[ReflectDirection.RIGHT])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 2 * self.values[X - 1, Y]
                 + self.values[X, Y - 1]
@@ -190,11 +220,11 @@ class Wave:
         )
 
         # 左端
-        X, Y = np.array(idxes_items[ReflectDirection.LEFT])
+        X, Y = np.array(indices_items[ReflectDirection.LEFT])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 2 * self.values[X + 1, Y]
                 + self.values[X, Y - 1]
@@ -204,11 +234,11 @@ class Wave:
         )
 
         # 上端
-        X, Y = np.array(idxes_items[ReflectDirection.TOP])
+        X, Y = np.array(indices_items[ReflectDirection.TOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 self.values[X - 1, Y]
                 + self.values[X + 1, Y]
@@ -218,11 +248,11 @@ class Wave:
         )
 
         # 下端
-        X, Y = np.array(idxes_items[ReflectDirection.BOTTOM])
+        X, Y = np.array(indices_items[ReflectDirection.BOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 self.values[X - 1, Y]
                 + self.values[X + 1, Y]
@@ -232,11 +262,11 @@ class Wave:
         )
 
         # 左上端
-        X, Y = np.array(idxes_items[ReflectDirection.LEFTTOP])
+        X, Y = np.array(indices_items[ReflectDirection.LEFTTOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 2 * self.values[X + 1, Y]
                 + 2 * self.values[X, Y + 1]
@@ -245,11 +275,11 @@ class Wave:
         )
 
         # 右上
-        X, Y = np.array(idxes_items[ReflectDirection.RIGHTTOP])
+        X, Y = np.array(indices_items[ReflectDirection.RIGHTTOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 2 * self.values[X - 1, Y]
                 + 2 * self.values[X, Y + 1]
@@ -258,11 +288,11 @@ class Wave:
         )
 
         # 右下
-        X, Y = np.array(idxes_items[ReflectDirection.RIGHTBOTTOM])
+        X, Y = np.array(indices_items[ReflectDirection.RIGHTBOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 2 * self.values[X - 1, Y]
                 + 2 * self.values[X, Y - 1]
@@ -271,11 +301,11 @@ class Wave:
         )
 
         # 左下
-        X, Y = np.array(idxes_items[ReflectDirection.LEFTBOTTOM])
+        X, Y = np.array(indices_items[ReflectDirection.LEFTBOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
-            + self.conditions.alpha
+            + self.conditions.grid.alpha
             * (
                 2 * self.values[X + 1, Y]
                 + 2 * self.values[X, Y - 1]
