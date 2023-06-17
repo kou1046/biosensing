@@ -220,21 +220,19 @@ class Wave:
     def __init__(
         self,
         wave_conditions: WaveConditions,
-        values: np.ndarray | None = None,
-        pre_values: np.ndarray | None = None,
     ):
-        if values is None:
-            self.values = np.zeros(
-                (
-                    wave_conditions.grid.calculate_grid_width(),
-                    wave_conditions.grid.calculate_grid_height(),
-                )
+        self.values: np.ndarray = np.zeros(
+            (
+                wave_conditions.grid.calculate_grid_width(),
+                wave_conditions.grid.calculate_grid_height(),
             )
-            self.pre_values = self.values.copy()
-        else:
-            self.values = values
-            self.pre_values = pre_values
+        )
+        self.pre_values = self.values.copy()
         self.conditions = wave_conditions
+        self.time = 0.0
+
+    def get_values(self):
+        return self.values.copy()
 
     def input_gauss(self, x0: float, y0: float, rad: float, A: float = 1.0):
         x = np.linspace(
@@ -248,7 +246,8 @@ class Wave:
             int(self.conditions.grid.height // self.conditions.grid.h),
         )
         input_values = A * np.exp(-((x - x0) ** 2) * rad**2) * np.exp(-((y - y0) ** 2) * rad**2)
-        return Wave(self.conditions, self.values + input_values, self.pre_values + input_values)
+        self.values = self.values + input_values
+        self.pre_values = self.pre_values + input_values
 
     def update(self):
         uR = np.roll(self.values, -1, 1)
@@ -341,7 +340,10 @@ class Wave:
             + self.conditions.grid.alpha
             * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
         )
-        return Wave(self.conditions, new_values.copy(), self.values.copy())
+
+        self.pre_values = self.values
+        self.values = new_values
+        self.time += self.conditions.grid.dt
 
 
 width = 5.0
@@ -360,11 +362,11 @@ obstacles = Obstacles(obstacle_list)
 
 wave_conditions = WaveConditions(grid, obstacles)
 wave = Wave(wave_conditions)
-wave = wave.input_gauss(0, 1.5, 3)
+wave.input_gauss(0, 1.5, 3)
 ims = []
 fig, ax = plt.subplots()
 for time in np.arange(0, 10 + dt, dt):
-    wave = wave.update()
+    wave.update()
     ims.append([ax.imshow(wave.values.T, "binary", vmin=-0.01, vmax=0.01)])
 anim = ArtistAnimation(fig, ims, interval=20)
 plt.show()
