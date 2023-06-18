@@ -14,7 +14,7 @@ class ReflectCondition(Enum):
     DIRICRE = 1
 
 
-class Direction(Enum):
+class Location(Enum):
     RIGHT = 0
     LEFT = 1
     TOP = 2
@@ -23,18 +23,6 @@ class Direction(Enum):
     LEFTTOP = 5
     RIGHTBOTTOM = 6
     LEFTBOTTOM = 7
-
-
-@dataclass(frozen=True)
-class PositiveFloatXY:
-    x: float
-    y: float
-
-    def __post_init__(self):
-        if self.x < 0 or self.y < 0:
-            raise ValueError("正の値しか認めない")
-        if not isinstance(float, self.x) or not isinstance(float, self.y):
-            raise ValueError("floatに変換する必要がある")
 
 
 XIndecies = list[int]
@@ -66,7 +54,7 @@ class Grid:
     def calculate_grid_index(self, cor: float):
         return int(cor // self.h)
 
-    def boundary_indices(self) -> dict[Direction, XYIndices]:
+    def boundary_indices(self) -> dict[Location, XYIndices]:
         """
         端付近のインデックス配列を取得する．
         """
@@ -99,9 +87,9 @@ class Grid:
         leftbottom_indices = ([0], [grid_col_last_index])
 
         return {
-            direction: indices
-            for direction, indices in zip(
-                Direction,
+            location: indices
+            for location, indices in zip(
+                Location,
                 [
                     right_indices,
                     left_indices,
@@ -120,19 +108,19 @@ class Grid:
 class Obstacle:
     pt1: tuple[float, float]
     pt2: tuple[float, float]
-    direction: Direction
+    location: Location
 
     def __post_init__(self):
         if self.is_upward() and self.is_horizontal():
-            raise ValueError("directionの指定方法が間違っている")
+            raise ValueError("locationの指定方法が間違っている")
         if self.is_downward() and self.is_horizontal():
-            raise ValueError("directionの指定方法が間違っている")
+            raise ValueError("locationの指定方法が間違っている")
         if self.is_rightward() and self.is_vertical():
-            raise ValueError("directionの指定方法が間違っている")
+            raise ValueError("locationの指定方法が間違っている")
         if self.is_leftward() and self.is_vertical():
-            raise ValueError("directionの指定方法が間違っている")
-        if self.direction in {Direction.RIGHTTOP, Direction.LEFTTOP, Direction.RIGHTBOTTOM, Direction.LEFTBOTTOM}:
-            raise ValueError("directionに手動で角を与える必要はない")
+            raise ValueError("locationの指定方法が間違っている")
+        if self.location in {Location.RIGHTTOP, Location.LEFTTOP, Location.RIGHTBOTTOM, Location.LEFTBOTTOM}:
+            raise ValueError("locationに手動で角を与える必要はない")
 
     def xs(self):
         return self.pt1[0], self.pt2[0]
@@ -157,30 +145,34 @@ class Obstacle:
         return start_y < end_y
 
     def is_vertical(self):
-        return self.direction == Direction.RIGHT or self.direction == Direction.LEFT
+        return self.location == Location.RIGHT or self.location == Location.LEFT
 
     def is_horizontal(self):
-        return self.direction == Direction.TOP or self.direction == Direction.BOTTOM
+        return self.location == Location.TOP or self.location == Location.BOTTOM
 
     def is_right(self):
-        return self.direction == Direction.RIGHT
+        return self.location == Location.RIGHT
 
     def is_left(self):
-        return self.direction == Direction.LEFT
+        return self.location == Location.LEFT
 
     def is_top(self):
-        return self.direction == Direction.TOP
+        return self.location == Location.TOP
 
     def is_bottom(self):
-        return self.direction == Direction.BOTTOM
+        return self.location == Location.BOTTOM
 
 
 @dataclass(frozen=True)
 class Obstacles:
     value: list[Obstacle]
 
-    def get_value(self):
-        return self.value.copy()
+    def __post_init__(self):
+        if len(self.value) < 2:
+            raise ValueError("障害物は2つ以上必要.")
+
+    def is_clockwise(self):
+        pass
 
     def xs(self):
         return np.array([obstacle.xs() for obstacle in self.value]).ravel().tolist()
@@ -196,16 +188,10 @@ class Obstacles:
         obstacle_ys = np.array([obstacle.ys() for obstacle in self.value]).ravel()
         return min(obstacle_ys), max(obstacle_ys)
 
-    def directions(self):
-        return [obstacle.direction for obstacle in self.value]
+    def locations(self):
+        return [obstacle.location for obstacle in self.value]
 
-    def create_fig_ax(self):
-        fig, ax = plt.subplots()
-        for obstacle in self.get_value():
-            ax.plot(obstacle.xs(), obstacle.ys())
-        return fig, ax
-
-    def grid_indices(self, grid: Grid) -> dict[Direction, XYIndices]:
+    def grid_indices(self, grid: Grid) -> dict[Location, XYIndices]:
         """
         障害物の格子インデックスを取得する．
         """
@@ -220,7 +206,7 @@ class Obstacles:
         grid_row_last_index = grid.calculate_grid_width() - 1
         grid_col_last_index = grid.calculate_grid_height() - 1
 
-        obstacle_indecies: dict[Direction, XYIndices] = {direction: ([], []) for direction in Direction}
+        obstacle_indecies: dict[Location, XYIndices] = {location: ([], []) for location in Location}
 
         for obstacle, next_obstacle in zip_longest(self.value, self.value[1:]):
             if next_obstacle is None:
@@ -245,13 +231,13 @@ class Obstacles:
                 obstacle_indicies_x = [grid.calculate_grid_index(xs[0])] * len(obstacle_indicies_y)
 
             if obstacle.is_right():
-                X, Y = obstacle_indecies[Direction.RIGHT]
+                X, Y = obstacle_indecies[Location.RIGHT]
             if obstacle.is_left():
-                X, Y = obstacle_indecies[Direction.LEFT]
+                X, Y = obstacle_indecies[Location.LEFT]
             if obstacle.is_top():
-                X, Y = obstacle_indecies[Direction.TOP]
+                X, Y = obstacle_indecies[Location.TOP]
             if obstacle.is_bottom():
-                X, Y = obstacle_indecies[Direction.BOTTOM]
+                X, Y = obstacle_indecies[Location.BOTTOM]
 
             X.extend(obstacle_indicies_x)
             Y.extend(obstacle_indicies_y)
@@ -263,7 +249,7 @@ class Obstacles:
                    |
                    |
                 """
-                X, Y = obstacle_indecies[Direction.RIGHTTOP]
+                X, Y = obstacle_indecies[Location.RIGHTTOP]
                 X.append(obstacle_indicies_x[0])
                 Y.append(obstacle_indicies_y[0])
 
@@ -274,7 +260,7 @@ class Obstacles:
                 o____
                 ↑ この角
                 """
-                X, Y = obstacle_indecies[Direction.LEFTBOTTOM]
+                X, Y = obstacle_indecies[Location.LEFTBOTTOM]
                 X.append(obstacle_indicies_x[0])
                 Y.append(obstacle_indicies_y[-1])
 
@@ -286,7 +272,7 @@ class Obstacles:
                 |
                 """
 
-                X, Y = obstacle_indecies[Direction.LEFTTOP]
+                X, Y = obstacle_indecies[Location.LEFTTOP]
                 X.append(obstacle_indicies_x[0])
                 Y.append(obstacle_indicies_y[0])
             if obstacle.is_bottom() and next_obstacle.is_upward() and next_obstacle.is_right():
@@ -295,7 +281,7 @@ class Obstacles:
                    |
                 ___o <- この核
                 """
-                X, Y = obstacle_indecies[Direction.RIGHTBOTTOM]
+                X, Y = obstacle_indecies[Location.RIGHTBOTTOM]
                 X.append(obstacle_indicies_x[-1])
                 Y.append(obstacle_indicies_y[0])
 
@@ -307,11 +293,11 @@ class Strain(metaclass=ABCMeta):
         self,
         pt1: tuple[float, float],
         pt2: tuple[float, float],
-        direction: Direction,
+        location: Location,
     ):
         self.pt1 = pt1
         self.pt2 = pt2
-        self.direction = direction
+        self.location = location
 
     def grid_indices(self):
         pass
@@ -366,22 +352,22 @@ class Wave:
         # 障害物が与えられれば障害物のインデックス群を取得して結合
         if obstacles is not None:
             obstacle_grid_indices = obstacles.grid_indices(self.grid)
-            for direction in Direction:
-                X, Y = indices_items[direction]
-                obstacle_X, obstacle_Y = obstacle_grid_indices[direction]
+            for location in Location:
+                X, Y = indices_items[location]
+                obstacle_X, obstacle_Y = obstacle_grid_indices[location]
                 X.extend(obstacle_X)
                 Y.extend(obstacle_Y)
 
         # ひずみが与えられればひずみのインデックス群を取得して結合
         if strain is not None:
             strain_grid_indices = strain.grid_indices(self.grid)
-            for direction in Direction:
-                X, Y = indices_items[direction]
-                strain_X, strain_Y = strain_grid_indices[direction]
+            for location in Location:
+                X, Y = indices_items[location]
+                strain_X, strain_Y = strain_grid_indices[location]
                 X.extend(strain_X)
                 Y.extend(strain_Y)
 
-        X, Y = np.array(indices_items[Direction.RIGHT])
+        X, Y = np.array(indices_items[Location.RIGHT])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -392,7 +378,7 @@ class Wave:
         new_values[X[o_idxes] + 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処
 
         # 左端
-        X, Y = np.array(indices_items[Direction.LEFT])
+        X, Y = np.array(indices_items[Location.LEFT])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -403,7 +389,7 @@ class Wave:
         new_values[X[o_idxes] - 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 上端
-        X, Y = np.array(indices_items[Direction.TOP])
+        X, Y = np.array(indices_items[Location.TOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -414,7 +400,7 @@ class Wave:
         new_values[X[o_idxes], Y[o_idxes] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 下端
-        X, Y = np.array(indices_items[Direction.BOTTOM])
+        X, Y = np.array(indices_items[Location.BOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -425,7 +411,7 @@ class Wave:
         new_values[X[o_idxes], Y[o_idxes] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 左上端
-        X, Y = np.array(indices_items[Direction.LEFTTOP])
+        X, Y = np.array(indices_items[Location.LEFTTOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -433,7 +419,7 @@ class Wave:
         )
 
         # 右上
-        X, Y = np.array(indices_items[Direction.RIGHTTOP])
+        X, Y = np.array(indices_items[Location.RIGHTTOP])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -441,7 +427,7 @@ class Wave:
         )
 
         # 右下
-        X, Y = np.array(indices_items[Direction.RIGHTBOTTOM])
+        X, Y = np.array(indices_items[Location.RIGHTBOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -449,7 +435,7 @@ class Wave:
         )
 
         # 左下
-        X, Y = np.array(indices_items[Direction.LEFTBOTTOM])
+        X, Y = np.array(indices_items[Location.LEFTBOTTOM])
         new_values[X, Y] = (
             2 * self.values[X, Y]
             - self.pre_values[X, Y]
@@ -470,26 +456,26 @@ grid = Grid(width, height, h, dt)
 obstacle_xs = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
 obstacle_ys = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
 obstacle_list = [
-    Obstacle((x0, y0), (x1, y1), direction)
-    for x0, y0, x1, y1, direction in (
+    Obstacle((x0, y0), (x1, y1), location)
+    for x0, y0, x1, y1, location in (
         zip(
             obstacle_xs,
             obstacle_ys,
             obstacle_xs[1:],
             obstacle_ys[1:],
             [
-                Direction.BOTTOM,
-                Direction.RIGHT,
-                Direction.BOTTOM,
-                Direction.LEFT,
-                Direction.BOTTOM,
-                Direction.LEFT,
-                Direction.TOP,
-                Direction.LEFT,
-                Direction.TOP,
-                Direction.RIGHT,
-                Direction.TOP,
-                Direction.RIGHT,
+                Location.BOTTOM,
+                Location.RIGHT,
+                Location.BOTTOM,
+                Location.LEFT,
+                Location.BOTTOM,
+                Location.LEFT,
+                Location.TOP,
+                Location.LEFT,
+                Location.TOP,
+                Location.RIGHT,
+                Location.TOP,
+                Location.RIGHT,
             ],
         )
     )
