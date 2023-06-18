@@ -63,6 +63,9 @@ class Grid:
     def calculate_grid_height(self):
         return int(self.height // self.h)
 
+    def calculate_grid_index(self, cor: float):
+        return int(cor // self.h)
+
     def boundary_indices(self) -> dict[Direction, XYIndices]:
         """
         端付近のインデックス配列を取得する．
@@ -226,18 +229,20 @@ class Obstacles:
             if obstacle.is_horizontal():
                 ys = obstacle.ys()
                 assert ys[0] == ys[1], "障害物が並行でない"
-                obstacle_index_xlim = (np.array(sorted(obstacle.xs())) // grid.h).astype(int)
+                obstalce_xlim = sorted(obstacle.xs())
+                obstacle_index_xlim = [grid.calculate_grid_index(x) for x in obstalce_xlim]
                 xmin, xmax = obstacle_index_xlim
                 obstacle_indicies_x = list(range(xmin, xmax + 1))
-                obstacle_indicies_y = [int(ys[0] // grid.h)] * len(obstacle_indicies_x)
+                obstacle_indicies_y = [grid.calculate_grid_index(ys[0])] * len(obstacle_indicies_x)
 
             if obstacle.is_vertical():
                 xs = obstacle.xs()
                 assert xs[0] == xs[1], "障害物が垂直でない"
-                obstacle_index_ylim = (np.array(sorted(obstacle.ys())) // grid.h).astype(int)
+                obstalce_ylim = sorted(obstacle.ys())
+                obstacle_index_ylim = [grid.calculate_grid_index(y) for y in obstalce_ylim]
                 ymin, ymax = obstacle_index_ylim
                 obstacle_indicies_y = list(range(ymin, ymax + 1))
-                obstacle_indicies_x = [int(xs[0] // grid.h)] * len(obstacle_indicies_y)
+                obstacle_indicies_x = [grid.calculate_grid_index(xs[0])] * len(obstacle_indicies_y)
 
             if obstacle.is_right():
                 X, Y = obstacle_indecies[Direction.RIGHT]
@@ -335,12 +340,12 @@ class Wave:
         x = np.linspace(
             0,
             self.grid.width,
-            int(self.grid.width // self.grid.h),
+            self.grid.calculate_grid_width(),
         ).reshape(-1, 1)
         y = np.linspace(
             0,
             self.grid.height,
-            int(self.grid.height // self.grid.h),
+            self.grid.calculate_grid_height(),
         )
         input_values = A * np.exp(-((x - x0) ** 2) * rad**2) * np.exp(-((y - y0) ** 2) * rad**2)
         self.values = self.values + input_values
