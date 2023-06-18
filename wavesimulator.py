@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import abstractmethod, ABCMeta
 from dataclasses import dataclass
-import itertools
+from itertools import zip_longest
 from typing import Callable
 from enum import Enum
 import numpy as np
@@ -43,11 +43,37 @@ class Obstacle:
     pt2: tuple[float, float]
     direction: Direction
 
+    def __post_init__(self):
+        if self.is_upward() and self.is_horizontal():
+            raise ValueError("directionの指定方法が間違っている")
+        if self.is_downward() and self.is_horizontal():
+            raise ValueError("directionの指定方法が間違っている")
+        if self.is_rightward() and self.is_vertical():
+            raise ValueError("directionの指定方法が間違っている")
+        if self.is_leftward() and self.is_vertical():
+            raise ValueError("directionの指定方法が間違っている")
+
     def xs(self):
         return self.pt1[0], self.pt2[0]
 
     def ys(self):
         return self.pt1[1], self.pt2[1]
+
+    def is_rightward(self):
+        start_x, end_x = self.xs()
+        return start_x < end_x
+
+    def is_leftward(self):
+        start_x, end_x = self.xs()
+        return start_x > end_x
+
+    def is_upward(self):
+        start_y, end_y = self.ys()
+        return start_y > end_y
+
+    def is_downward(self):
+        start_y, end_y = self.ys()
+        return start_y < end_y
 
     def is_vertical(self):
         return self.direction == Direction.RIGHT or self.direction == Direction.LEFT
@@ -82,6 +108,9 @@ class Obstacles:
     def ylim(self):
         obstacle_ys = np.array([obstacle.ys() for obstacle in self.value]).ravel()
         return min(obstacle_ys), max(obstacle_ys)
+
+    def directions(self):
+        return [obstacle.direction for obstacle in self.value]
 
     def create_fig_ax(self):
         fig, ax = plt.subplots()
@@ -210,7 +239,11 @@ class WaveConditions:
         grid_row_last_index = self.grid.calculate_grid_width() - 1
         grid_col_last_index = self.grid.calculate_grid_height() - 1
 
-        for obstacle in self.obstacles.get_value():
+        obstacles = self.obstacles.get_value()
+        for obstacle, next_obstacle in zip_longest(obstacles, obstacles[1:]):
+            if next_obstacle is None:
+                next_obstacle = obstacles[0]
+
             if obstacle.is_horizontal():
                 ys = obstacle.ys()
                 assert ys[0] == ys[1], "障害物が並行でない"
@@ -235,8 +268,52 @@ class WaveConditions:
                 X, Y = boundary_indices[Direction.TOP]
             if obstacle.is_bottom():
                 X, Y = boundary_indices[Direction.BOTTOM]
+
             X.extend(obstacle_indicies_x)
             Y.extend(obstacle_indicies_y)
+
+            if obstacle.is_right() and next_obstacle.is_top() and next_obstacle.is_leftward():
+                """
+                ___
+                   o <- この角
+                   |
+                   |
+                """
+                X, Y = boundary_indices[Direction.RIGHTTOP]
+                X.append(obstacle_indicies_x[0])
+                Y.append(obstacle_indicies_y[0])
+
+            if obstacle.is_left() and next_obstacle.is_rightward() and next_obstacle.is_bottom():
+                """
+                |
+                |
+                o____
+                ↑ この角
+                """
+                X, Y = boundary_indices[Direction.LEFTBOTTOM]
+                X.append(obstacle_indicies_x[0])
+                Y.append(obstacle_indicies_y[-1])
+
+            if obstacle.is_top() and next_obstacle.is_downward() and next_obstacle.is_left():
+                """
+                ___
+                o  <- この角
+                |
+                |
+                """
+
+                X, Y = boundary_indices[Direction.LEFTTOP]
+                X.append(obstacle_indicies_x[0])
+                Y.append(obstacle_indicies_y[0])
+            if obstacle.is_bottom() and next_obstacle.is_upward() and next_obstacle.is_right():
+                """
+                   |
+                   |
+                ___o <- この核
+                """
+                X, Y = boundary_indices[Direction.RIGHTBOTTOM]
+                X.append(obstacle_indicies_x[-1])
+                Y.append(obstacle_indicies_y[0])
 
         return boundary_indices
 
@@ -381,27 +458,50 @@ class Wave:
 
 
 width = 5
-height = 1
+height = 5
 h = 0.01
 dt = 0.005
 grid = Grid(width, height, h, dt)
 
+obstacle_x = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
+obstacle_y = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
+
 obstacle_list = [
-    Obstacle((2, 0.3), (3, 0.3), Direction.BOTTOM),
-    Obstacle((3, 0.3), (3, 0.5), Direction.RIGHT),
-    Obstacle((3, 0.5), (2, 0.5), Direction.TOP),
-    Obstacle((2, 0.5), (2, 0.3), Direction.LEFT),
+    Obstacle((x0, y0), (x1, y1), direction)
+    for x0, y0, x1, y1, direction in (
+        zip(
+            obstacle_x,
+            obstacle_y,
+            obstacle_x[1:],
+            obstacle_y[1:],
+            [
+                Direction.BOTTOM,
+                Direction.RIGHT,
+                Direction.BOTTOM,
+                Direction.LEFT,
+                Direction.BOTTOM,
+                Direction.LEFT,
+                Direction.TOP,
+                Direction.LEFT,
+                Direction.TOP,
+                Direction.RIGHT,
+                Direction.TOP,
+                Direction.RIGHT,
+            ],
+        )
+    )
 ]
+
 obstacles = Obstacles(obstacle_list)
 
 wave_conditions = WaveConditions(grid, obstacles)
 fig_, ax_ = wave_conditions.create_fig_ax()
-wave = Wave(wave_conditions)
-wave.input_gauss(0, 0.5, 3)
-ims = []
-fig, ax = plt.subplots()
-for time in np.arange(0, 10 + dt, dt):
-    wave.update()
-    ims.append([ax.imshow(wave.values.T, "binary")])
-anim = ArtistAnimation(fig, ims, interval=20)
+# wave = Wave(wave_conditions)
+# wave.input_gauss(0, 0.5, 3)
+# ims = []
+# fig, ax = plt.subplots()
+# for time in np.arange(0, 10 + dt, dt):
+#     wave.update()
+#     ims.append([ax.imshow(wave.values.T, "binary")])
+# anim = ArtistAnimation(fig, ims, interval=20)
 plt.show()
