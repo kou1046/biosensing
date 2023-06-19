@@ -6,7 +6,7 @@ from typing import Callable
 from enum import Enum
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import ArtistAnimation
+from matplotlib.animation import FuncAnimation
 
 
 class ReflectCondition(Enum):
@@ -23,6 +23,119 @@ class Location(Enum):
     LEFTTOP = 5
     RIGHTBOTTOM = 6
     LEFTBOTTOM = 7
+
+
+@dataclass(frozen=True)
+class Wall:
+    """_summary_
+        障害物やひずみの場所を表現するときに用いるクラス．
+    Args:
+        pt1: 始点
+        pt2: 終点
+        location: 壁の種類 (右 or 左 or 上 or 下)
+    """
+
+    pt1: tuple[float, float]
+    pt2: tuple[float, float]
+    location: Location
+
+    def __post_init__(self):
+        if self.is_upward() and self.is_horizontal():
+            raise ValueError("locationの指定方法が間違っている")
+        if self.is_downward() and self.is_horizontal():
+            raise ValueError("locationの指定方法が間違っている")
+        if self.is_rightward() and self.is_vertical():
+            raise ValueError("locationの指定方法が間違っている")
+        if self.is_leftward() and self.is_vertical():
+            raise ValueError("locationの指定方法が間違っている")
+        if self.location in {Location.RIGHTTOP, Location.LEFTTOP, Location.RIGHTBOTTOM, Location.LEFTBOTTOM}:
+            raise ValueError("locationに手動で角を与える必要はない")
+
+    def xs(self):
+        return self.pt1[0], self.pt2[0]
+
+    def ys(self):
+        return self.pt1[1], self.pt2[1]
+
+    def is_rightward(self):
+        """
+        ベクトルが右向きかどうか. 以後同様
+        """
+        start_x, end_x = self.xs()
+        return start_x < end_x
+
+    def is_leftward(self):
+        start_x, end_x = self.xs()
+        return start_x > end_x
+
+    def is_upward(self):
+        start_y, end_y = self.ys()
+        return start_y > end_y
+
+    def is_downward(self):
+        start_y, end_y = self.ys()
+        return start_y < end_y
+
+    def is_vertical(self):
+        return self.location == Location.RIGHT or self.location == Location.LEFT
+
+    def is_horizontal(self):
+        return self.location == Location.TOP or self.location == Location.BOTTOM
+
+    def is_right(self):
+        return self.location == Location.RIGHT
+
+    def is_left(self):
+        return self.location == Location.LEFT
+
+    def is_top(self):
+        return self.location == Location.TOP
+
+    def is_bottom(self):
+        return self.location == Location.BOTTOM
+
+
+@dataclass(frozen=True)
+class Obstacle:
+    """_summary_
+        障害物を表現するクラス. Wallのファーストクラスコレクション.
+    Args:
+        walls: Wallの配列.
+    """
+
+    walls: list[Wall]
+
+    def __post_init__(self):
+        if len(self.walls) < 2:
+            raise ValueError("障害物は2つ以上必要.")
+        if not self._are_all_vertical_intersecting:
+            raise ValueError("全て垂直に交わるように配置する必要がある．")
+
+    def _are_all_vertical_intersecting(self):
+        for wall, next_wall in zip(self.walls, self.walls[1:]):
+            vec_1 = np.array(wall.pt1) - np.array(wall.pt2)
+            vec_2 = np.array(next_wall.pt1) - np.array(next_wall.pt2)
+            if np.dot(vec_1, vec_2):
+                return False
+        return True
+
+    def xs(self):
+        return np.array([wall.xs() for wall in self.walls]).ravel().tolist()
+
+    def ys(self):
+        return np.array([wall.ys() for wall in self.walls]).ravel().tolist()
+
+    def locations(self):
+        return [wall.location for wall in self.walls]
+
+
+class Strain(metaclass=ABCMeta):
+    def __init__(self, wall: Wall):
+        self.wall = wall
+
+    @abstractmethod
+    def input(self, x: float, y: float, t: float) -> float:
+        ...
 
 
 XIndecies = list[int]
@@ -207,125 +320,25 @@ class Grid:
 
         return wall_indices
 
-    def calculate_strain_indices(self, strain: Strain):
+    def calculate_strain_indices(self, strain: Strain) -> dict[Location, XYIndices]:
         """
         引数として与えられたひずみ(Strain)の格子インデックスを取得する.
         """
+        strain_indices: dict[Location, XYIndices] = {location: ([], []) for location in Location}
 
         x_indices, y_indices = self.calculate_wall_indices(strain.wall)
+        if strain.wall.is_right():
+            X, Y = strain_indices[Location.RIGHT]
+        if strain.wall.is_left():
+            X, Y = strain_indices[Location.LEFT]
+        if strain.wall.is_top():
+            X, Y = strain_indices[Location.TOP]
+        if strain.wall.is_bottom():
+            X, Y = strain_indices[Location.BOTTOM]
+        X.extend(x_indices)
+        Y.extend(y_indices)
 
-
-@dataclass(frozen=True)
-class Wall:
-    """_summary_
-        障害物やひずみを表現するときに用いるクラス．
-    Args:
-        pt1: 始点
-        pt2: 終点
-        location: 壁の種類 (右 or 左 or 上 or 下)
-    """
-
-    pt1: tuple[float, float]
-    pt2: tuple[float, float]
-    location: Location
-
-    def __post_init__(self):
-        if self.is_upward() and self.is_horizontal():
-            raise ValueError("locationの指定方法が間違っている")
-        if self.is_downward() and self.is_horizontal():
-            raise ValueError("locationの指定方法が間違っている")
-        if self.is_rightward() and self.is_vertical():
-            raise ValueError("locationの指定方法が間違っている")
-        if self.is_leftward() and self.is_vertical():
-            raise ValueError("locationの指定方法が間違っている")
-        if self.location in {Location.RIGHTTOP, Location.LEFTTOP, Location.RIGHTBOTTOM, Location.LEFTBOTTOM}:
-            raise ValueError("locationに手動で角を与える必要はない")
-
-    def xs(self):
-        return self.pt1[0], self.pt2[0]
-
-    def ys(self):
-        return self.pt1[1], self.pt2[1]
-
-    def is_rightward(self):
-        """
-        ベクトルが右向きかどうか. 以後同様
-        """
-        start_x, end_x = self.xs()
-        return start_x < end_x
-
-    def is_leftward(self):
-        start_x, end_x = self.xs()
-        return start_x > end_x
-
-    def is_upward(self):
-        start_y, end_y = self.ys()
-        return start_y > end_y
-
-    def is_downward(self):
-        start_y, end_y = self.ys()
-        return start_y < end_y
-
-    def is_vertical(self):
-        return self.location == Location.RIGHT or self.location == Location.LEFT
-
-    def is_horizontal(self):
-        return self.location == Location.TOP or self.location == Location.BOTTOM
-
-    def is_right(self):
-        return self.location == Location.RIGHT
-
-    def is_left(self):
-        return self.location == Location.LEFT
-
-    def is_top(self):
-        return self.location == Location.TOP
-
-    def is_bottom(self):
-        return self.location == Location.BOTTOM
-
-
-@dataclass(frozen=True)
-class Obstacle:
-    """_summary_
-        障害物を表現するクラス. Wallのファーストクラスコレクション.
-    Args:
-        walls: Wallの配列.
-    """
-
-    walls: list[Wall]
-
-    def __post_init__(self):
-        if len(self.walls) < 2:
-            raise ValueError("障害物は2つ以上必要.")
-        if not self._are_all_vertical_intersecting:
-            raise ValueError("全て垂直に交わるように配置する必要がある．")
-
-    def _are_all_vertical_intersecting(self):
-        for wall, next_wall in zip(self.walls, self.walls[1:]):
-            vec_1 = np.array(wall.pt1) - np.array(wall.pt2)
-            vec_2 = np.array(next_wall.pt1) - np.array(next_wall.pt2)
-            if np.dot(vec_1, vec_2):
-                return False
-        return True
-
-    def xs(self):
-        return np.array([wall.xs() for wall in self.walls]).ravel().tolist()
-
-    def ys(self):
-        return np.array([wall.ys() for wall in self.walls]).ravel().tolist()
-
-    def locations(self):
-        return [wall.location for wall in self.walls]
-
-
-class Strain(metaclass=ABCMeta):
-    def __init__(self, wall: Wall):
-        self.wall = wall
-
-    @abstractmethod
-    def input(self, x: float, y: float, t: float) -> float:
-        ...
+        return strain_indices
 
 
 class Wave:
@@ -379,136 +392,172 @@ class Wave:
                 X.extend(wall_X)
                 Y.extend(wall_Y)
 
-        # ひずみが与えられればひずみのインデックス群を取得して結合
-        if strain is not None:
-            strain_grid_indices = self.grid.calculate_strain_indices(self.grid)
-            for location in Location:
-                X, Y = indices_items[location]
-                strain_X, strain_Y = strain_grid_indices[location]
-                X.extend(strain_X)
-                Y.extend(strain_Y)
-
+        # 右端
         X, Y = np.array(indices_items[Location.RIGHT])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha
-            * (2 * self.values[X - 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
-        )
-        o_idxes = X + 1 < self.values.shape[0]
-        new_values[X[o_idxes] + 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (2 * self.values[X - 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = X + 1 < self.values.shape[0]
+            new_values[X[o_idxes] + 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処
 
         # 左端
         X, Y = np.array(indices_items[Location.LEFT])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha
-            * (2 * self.values[X + 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
-        )
-        o_idxes = X > 0
-        new_values[X[o_idxes] - 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (2 * self.values[X + 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = X > 0
+            new_values[X[o_idxes] - 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 上端
         X, Y = np.array(indices_items[Location.TOP])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha
-            * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
-        )
-        o_idxes = Y > 0
-        new_values[X[o_idxes], Y[o_idxes] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = Y > 0
+            new_values[X[o_idxes], Y[o_idxes] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 下端
         X, Y = np.array(indices_items[Location.BOTTOM])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha
-            * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
-        )
-        o_idxes = Y + 1 < self.values.shape[1]
-        new_values[X[o_idxes], Y[o_idxes] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = Y + 1 < self.values.shape[1]
+            new_values[X[o_idxes], Y[o_idxes] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
 
         # 左上端
         X, Y = np.array(indices_items[Location.LEFTTOP])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
-        )
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
 
         # 右上
         X, Y = np.array(indices_items[Location.RIGHTTOP])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
-        )
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
 
         # 右下
         X, Y = np.array(indices_items[Location.RIGHTBOTTOM])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
-        )
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
+            )
 
         # 左下
         X, Y = np.array(indices_items[Location.LEFTBOTTOM])
-        new_values[X, Y] = (
-            2 * self.values[X, Y]
-            - self.pre_values[X, Y]
-            + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
-        )
+        if len(X):
+            new_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
+            )
+
+        # ひずみが与えられればひずみ拘束条件の計算を加える (現時点で左のひずみのみ)
+        if strain is not None:
+            strain_indices_items = self.grid.calculate_strain_indices(strain)
+
+            X, Y = np.array(strain_indices_items[Location.LEFT])
+            if len(X):
+                new_values[X, Y] = (
+                    2 * self.values[X, Y]
+                    - self.pre_values[X, Y]
+                    + self.grid.alpha
+                    * (
+                        self.values[X + 1, Y]
+                        + self.values[X, Y + 1]
+                        + self.values[X, Y - 1]
+                        - 4 * self.values[X, Y]
+                        - 2 * self.grid.h * strain.input(X, Y, self.time)
+                    )
+                )
 
         self.pre_values = self.values
         self.values = new_values
         self.time += self.grid.dt
 
 
-width = 5
-height = 5
-h = 0.01
-dt = 0.005
-grid = Grid(width, height, h, dt)
+if __name__ == "__main__":
 
-wall_xs = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
-wall_ys = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
-wall_list = [
-    Wall((x0, y0), (x1, y1), location)
-    for x0, y0, x1, y1, location in (
-        zip(
-            wall_xs,
-            wall_ys,
-            wall_xs[1:],
-            wall_ys[1:],
-            [
-                Location.BOTTOM,
-                Location.RIGHT,
-                Location.BOTTOM,
-                Location.LEFT,
-                Location.BOTTOM,
-                Location.LEFT,
-                Location.TOP,
-                Location.LEFT,
-                Location.TOP,
-                Location.RIGHT,
-                Location.TOP,
-                Location.RIGHT,
-            ],
+    class SimpleStrain(Strain):
+        def __init__(self, wall: Wall):
+            super().__init__(wall)
+
+        def input(self, x: float, y: float, t: float) -> float:
+            f = 3
+            return np.cos(2 * np.pi * f * t) if t <= 3.0 else 0.0
+
+    def wave_generator():
+        for time in np.arange(0, 10 + dt, dt):
+            wave.update(obstacle, strain)
+            yield time
+
+    def animate(time: float):
+        ax.cla()
+        ax.imshow(wave.values.T, "binary", vmin=-0.01, vmax=0.01)
+        ax.set_title(f"Time = {round(time, 2)}")
+
+    width = 5
+    height = 5
+    h = 0.01
+    dt = 0.005
+    grid = Grid(width, height, h, dt)
+
+    wall_xs = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
+    wall_ys = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
+    wall_list = [
+        Wall((x0, y0), (x1, y1), location)
+        for x0, y0, x1, y1, location in (
+            zip(
+                wall_xs,
+                wall_ys,
+                wall_xs[1:],
+                wall_ys[1:],
+                [
+                    Location.BOTTOM,
+                    Location.RIGHT,
+                    Location.BOTTOM,
+                    Location.LEFT,
+                    Location.BOTTOM,
+                    Location.LEFT,
+                    Location.TOP,
+                    Location.LEFT,
+                    Location.TOP,
+                    Location.RIGHT,
+                    Location.TOP,
+                    Location.RIGHT,
+                ],
+            )
         )
-    )
-]
-obstacle = Obstacle(wall_list)
+    ]
+    obstacle = Obstacle(wall_list)
+    strain = SimpleStrain(Wall((0, 1.6), (0, 3.2), Location.LEFT))
+    wave = Wave(grid)
 
-wave = Wave(grid)
-wave.input_gauss(0, 0.5, 3)
-ims = []
-fig, ax = plt.subplots()
-for time in np.arange(0, 10 + dt, dt):
-    wave.update(obstacle)
-    ims.append([ax.imshow(wave.values.T, "binary")])
-anim = ArtistAnimation(fig, ims, interval=20)
-plt.show()
+    fig, ax = plt.subplots()
+    gen = wave_generator()
+    anim = FuncAnimation(fig, animate, frames=gen, interval=10)
+    plt.show()
