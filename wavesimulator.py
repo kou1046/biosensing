@@ -54,7 +54,7 @@ class Grid:
     def calculate_grid_index(self, cor: float):
         return int(cor // self.h)
 
-    def boundary_indices(self) -> dict[Location, XYIndices]:
+    def calculate_boundary_indices(self) -> dict[Location, XYIndices]:
         """
         端付近のインデックス配列を取得する．
         """
@@ -102,6 +102,117 @@ class Grid:
                 ],
             )
         }
+
+    def calculate_wall_indices(self, wall: Wall) -> XYIndices:
+        """
+        引数として与えられた壁(wall)の格子インデックスを取得する．
+        """
+        wall_xmin, wall_xmax = sorted(wall.xs())
+        if wall_xmin < 0 or wall_xmax > self.width:
+            raise ValueError("格子の幅が足りない")
+        wall_ymin, wall_ymax = sorted(wall.ys())
+        if wall_ymin < 0 or wall_ymax > self.height:
+            raise ValueError("格子の高さが足りない")
+
+        if wall.is_horizontal():
+            ys = wall.ys()
+            assert ys[0] == ys[1], "障害物が並行でない"
+            obstalce_xlim = sorted(wall.xs())
+            wall_index_xlim = [self.calculate_grid_index(x) for x in obstalce_xlim]
+            xmin, xmax = wall_index_xlim
+            wall_indices_x = list(range(xmin, xmax + 1))
+            wall_indices_y = [self.calculate_grid_index(ys[0])] * len(wall_indices_x)
+
+        if wall.is_vertical():
+            xs = wall.xs()
+            assert xs[0] == xs[1], "障害物が垂直でない"
+            obstalce_ylim = sorted(wall.ys())
+            wall_index_ylim = [self.calculate_grid_index(y) for y in obstalce_ylim]
+            ymin, ymax = wall_index_ylim
+            wall_indices_y = list(range(ymin, ymax + 1))
+            wall_indices_x = [self.calculate_grid_index(xs[0])] * len(wall_indices_y)
+
+        return (wall_indices_x, wall_indices_y)
+
+    def calculate_obstacle_indices(self, obstacle: Obstacle) -> dict[Location, XYIndices]:
+        """
+        引数として与えられた障害物(Obstacle)の格子インデックスを取得する．
+        """
+
+        grid_row_last_index = self.calculate_grid_row_num() - 1
+        grid_col_last_index = self.calculate_grid_col_num() - 1
+
+        wall_indices: dict[Location, XYIndices] = {location: ([], []) for location in Location}
+
+        for wall, next_wall in zip_longest(obstacle.walls, obstacle.walls[1:]):
+            if next_wall is None:
+                next_wall = obstacle.walls[0]
+
+            wall_indices_x, wall_indices_y = self.calculate_wall_indices(wall)
+
+            if wall.is_right():
+                X, Y = wall_indices[Location.RIGHT]
+            if wall.is_left():
+                X, Y = wall_indices[Location.LEFT]
+            if wall.is_top():
+                X, Y = wall_indices[Location.TOP]
+            if wall.is_bottom():
+                X, Y = wall_indices[Location.BOTTOM]
+
+            X.extend(wall_indices_x)
+            Y.extend(wall_indices_y)
+
+            if wall.is_right() and next_wall.is_top() and next_wall.is_leftward():
+                """
+                ___
+                   o <- この角
+                   |
+                   |
+                """
+                X, Y = wall_indices[Location.RIGHTTOP]
+                X.append(wall_indices_x[0])
+                Y.append(wall_indices_y[0])
+
+            if wall.is_left() and next_wall.is_rightward() and next_wall.is_bottom():
+                """
+                |
+                |
+                o____
+                ↑ この角
+                """
+                X, Y = wall_indices[Location.LEFTBOTTOM]
+                X.append(wall_indices_x[0])
+                Y.append(wall_indices_y[-1])
+
+            if wall.is_top() and next_wall.is_downward() and next_wall.is_left():
+                """
+                ___
+                o  <- この角
+                |
+                |
+                """
+
+                X, Y = wall_indices[Location.LEFTTOP]
+                X.append(wall_indices_x[0])
+                Y.append(wall_indices_y[0])
+            if wall.is_bottom() and next_wall.is_upward() and next_wall.is_right():
+                """
+                   |
+                   |
+                ___o <- この核
+                """
+                X, Y = wall_indices[Location.RIGHTBOTTOM]
+                X.append(wall_indices_x[-1])
+                Y.append(wall_indices_y[0])
+
+        return wall_indices
+
+    def calculate_strain_indices(self, strain: Strain):
+        """
+        引数として与えられたひずみ(Strain)の格子インデックスを取得する.
+        """
+
+        x_indices, y_indices = self.calculate_wall_indices(strain.wall)
 
 
 @dataclass(frozen=True)
@@ -177,9 +288,9 @@ class Wall:
 @dataclass(frozen=True)
 class Obstacle:
     """_summary_
-        障害物を表現するクラス. Wallクラスのファーストコレクション.
+        障害物を表現するクラス. Wallのファーストクラスコレクション.
     Args:
-        value: Wallの配列.
+        walls: Wallの配列.
     """
 
     walls: list[Wall]
@@ -204,130 +315,13 @@ class Obstacle:
     def ys(self):
         return np.array([wall.ys() for wall in self.walls]).ravel().tolist()
 
-    def xlim(self):
-        wall_xs = self.xs()
-        return min(wall_xs), max(wall_xs)
-
-    def ylim(self):
-        wall_ys = np.array([wall.ys() for wall in self.walls]).ravel()
-        return min(wall_ys), max(wall_ys)
-
     def locations(self):
         return [wall.location for wall in self.walls]
 
-    def grid_indices(self, grid: Grid) -> dict[Location, XYIndices]:
-        """
-        障害物の格子インデックスを取得する．
-        """
-
-        wall_xmin, wall_xmax = self.xlim()
-        if wall_xmin < 0 or wall_xmax > grid.width:
-            raise ValueError("格子の幅が足りない")
-        wall_ymin, wall_ymax = self.ylim()
-        if wall_ymin < 0 or wall_ymax > grid.height:
-            raise ValueError("格子の高さが足りない")
-
-        grid_row_last_index = grid.calculate_grid_row_num() - 1
-        grid_col_last_index = grid.calculate_grid_col_num() - 1
-
-        wall_indecies: dict[Location, XYIndices] = {location: ([], []) for location in Location}
-
-        for wall, next_wall in zip_longest(self.walls, self.walls[1:]):
-            if next_wall is None:
-                next_wall = self.walls[0]
-
-            if wall.is_horizontal():
-                ys = wall.ys()
-                assert ys[0] == ys[1], "障害物が並行でない"
-                obstalce_xlim = sorted(wall.xs())
-                wall_index_xlim = [grid.calculate_grid_index(x) for x in obstalce_xlim]
-                xmin, xmax = wall_index_xlim
-                wall_indicies_x = list(range(xmin, xmax + 1))
-                wall_indicies_y = [grid.calculate_grid_index(ys[0])] * len(wall_indicies_x)
-
-            if wall.is_vertical():
-                xs = wall.xs()
-                assert xs[0] == xs[1], "障害物が垂直でない"
-                obstalce_ylim = sorted(wall.ys())
-                wall_index_ylim = [grid.calculate_grid_index(y) for y in obstalce_ylim]
-                ymin, ymax = wall_index_ylim
-                wall_indicies_y = list(range(ymin, ymax + 1))
-                wall_indicies_x = [grid.calculate_grid_index(xs[0])] * len(wall_indicies_y)
-
-            if wall.is_right():
-                X, Y = wall_indecies[Location.RIGHT]
-            if wall.is_left():
-                X, Y = wall_indecies[Location.LEFT]
-            if wall.is_top():
-                X, Y = wall_indecies[Location.TOP]
-            if wall.is_bottom():
-                X, Y = wall_indecies[Location.BOTTOM]
-
-            X.extend(wall_indicies_x)
-            Y.extend(wall_indicies_y)
-
-            if wall.is_right() and next_wall.is_top() and next_wall.is_leftward():
-                """
-                ___
-                   o <- この角
-                   |
-                   |
-                """
-                X, Y = wall_indecies[Location.RIGHTTOP]
-                X.append(wall_indicies_x[0])
-                Y.append(wall_indicies_y[0])
-
-            if wall.is_left() and next_wall.is_rightward() and next_wall.is_bottom():
-                """
-                |
-                |
-                o____
-                ↑ この角
-                """
-                X, Y = wall_indecies[Location.LEFTBOTTOM]
-                X.append(wall_indicies_x[0])
-                Y.append(wall_indicies_y[-1])
-
-            if wall.is_top() and next_wall.is_downward() and next_wall.is_left():
-                """
-                ___
-                o  <- この角
-                |
-                |
-                """
-
-                X, Y = wall_indecies[Location.LEFTTOP]
-                X.append(wall_indicies_x[0])
-                Y.append(wall_indicies_y[0])
-            if wall.is_bottom() and next_wall.is_upward() and next_wall.is_right():
-                """
-                   |
-                   |
-                ___o <- この核
-                """
-                X, Y = wall_indecies[Location.RIGHTBOTTOM]
-                X.append(wall_indicies_x[-1])
-                Y.append(wall_indicies_y[0])
-
-        return wall_indecies
-
 
 class Strain(metaclass=ABCMeta):
-    def __init__(
-        self,
-        pt1: tuple[float, float],
-        pt2: tuple[float, float],
-        location: Location,
-    ):
-        self.pt1 = pt1
-        self.pt2 = pt2
-        self.location = location
-
-    def grid_indices(self, grid: Grid):
-        """
-        ひずみの格子インデックスを取得する．
-        """
-        pass
+    def __init__(self, wall: Wall):
+        self.wall = wall
 
     @abstractmethod
     def input(self, x: float, y: float, t: float) -> float:
@@ -374,11 +368,11 @@ class Wave:
         new_values = 2 * self.values - self.pre_values + self.grid.alpha * (uL + uR + uB + uT - 4 * self.values)
 
         # 端のインデックス群を取得
-        indices_items = self.grid.boundary_indices()
+        indices_items = self.grid.calculate_boundary_indices()
 
         # 障害物が与えられれば障害物のインデックス群を取得して結合
         if obstacle is not None:
-            obstacle_grid_indices = obstacle.grid_indices(self.grid)
+            obstacle_grid_indices = self.grid.calculate_obstacle_indices(obstacle)
             for location in Location:
                 X, Y = indices_items[location]
                 wall_X, wall_Y = obstacle_grid_indices[location]
@@ -387,7 +381,7 @@ class Wave:
 
         # ひずみが与えられればひずみのインデックス群を取得して結合
         if strain is not None:
-            strain_grid_indices = strain.grid_indices(self.grid)
+            strain_grid_indices = self.grid.calculate_strain_indices(self.grid)
             for location in Location:
                 X, Y = indices_items[location]
                 strain_X, strain_Y = strain_grid_indices[location]
@@ -483,7 +477,7 @@ grid = Grid(width, height, h, dt)
 wall_xs = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
 wall_ys = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
 wall_list = [
-    Obstacle((x0, y0), (x1, y1), location)
+    Wall((x0, y0), (x1, y1), location)
     for x0, y0, x1, y1, location in (
         zip(
             wall_xs,
