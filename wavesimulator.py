@@ -45,10 +45,10 @@ class Grid:
         if self.dt > self.h:
             raise ValueError("クーラン条件に基づき, 時間刻みdtは格子刻み幅hより小さくすること. ")
 
-    def calculate_grid_width(self):
+    def calculate_grid_row_num(self):
         return int(self.width // self.h)
 
-    def calculate_grid_height(self):
+    def calculate_grid_col_num(self):
         return int(self.height // self.h)
 
     def calculate_grid_index(self, cor: float):
@@ -59,26 +59,26 @@ class Grid:
         端付近のインデックス配列を取得する．
         """
 
-        grid_width = self.calculate_grid_width()
-        grid_height = self.calculate_grid_height()
-        grid_row_last_index = grid_width - 1
-        grid_col_last_index = grid_height - 1
+        grid_row_num = self.calculate_grid_row_num()
+        grid_col_num = self.calculate_grid_col_num()
+        grid_row_last_index = grid_row_num - 1
+        grid_col_last_index = grid_col_num - 1
 
         right_indices = (
-            ([grid_row_last_index] * (grid_height - 2)),  # 角の処理のため，最初と最後は追加しない -> Xの要素数は grid_height - 2となる. 以降も同様．
-            list(range(1, grid_height - 1)),
+            ([grid_row_last_index] * (grid_col_num - 2)),  # 角の処理のため，最初と最後は追加しない -> Xの要素数は grid_col_num - 2となる. 以降も同様．
+            list(range(1, grid_col_num - 1)),
         )
         left_indices = (
-            ([0] * (grid_height - 2)),
-            list(range(1, grid_height - 1)),
+            ([0] * (grid_col_num - 2)),
+            list(range(1, grid_col_num - 1)),
         )
         top_indices = (
-            list(range(1, grid_width - 1)),
-            ([0] * (grid_width - 2)),
+            list(range(1, grid_row_num - 1)),
+            ([0] * (grid_row_num - 2)),
         )
         bottom_indices = (
-            list(range(1, grid_width - 1)),
-            ([grid_col_last_index] * (grid_width - 2)),
+            list(range(1, grid_row_num - 1)),
+            ([grid_col_last_index] * (grid_row_num - 2)),
         )
 
         righttop_indices = ([grid_row_last_index], [0])
@@ -105,7 +105,15 @@ class Grid:
 
 
 @dataclass(frozen=True)
-class Obstacle:
+class Wall:
+    """_summary_
+        障害物やひずみを表現するときに用いるクラス．
+    Args:
+        pt1: 始点
+        pt2: 終点
+        location: 壁の種類 (右 or 左 or 上 or 下)
+    """
+
     pt1: tuple[float, float]
     pt2: tuple[float, float]
     location: Location
@@ -129,6 +137,9 @@ class Obstacle:
         return self.pt1[1], self.pt2[1]
 
     def is_rightward(self):
+        """
+        ベクトルが右向きかどうか. 以後同様
+        """
         start_x, end_x = self.xs()
         return start_x < end_x
 
@@ -164,107 +175,120 @@ class Obstacle:
 
 
 @dataclass(frozen=True)
-class Obstacles:
-    value: list[Obstacle]
+class Obstacle:
+    """_summary_
+        障害物を表現するクラス. Wallクラスのファーストコレクション.
+    Args:
+        value: Wallの配列.
+    """
+
+    walls: list[Wall]
 
     def __post_init__(self):
-        if len(self.value) < 2:
+        if len(self.walls) < 2:
             raise ValueError("障害物は2つ以上必要.")
+        if not self._are_all_vertical_intersecting:
+            raise ValueError("全て垂直に交わるように配置する必要がある．")
 
-    def is_clockwise(self):
-        pass
+    def _are_all_vertical_intersecting(self):
+        for wall, next_wall in zip(self.walls, self.walls[1:]):
+            vec_1 = np.array(wall.pt1) - np.array(wall.pt2)
+            vec_2 = np.array(next_wall.pt1) - np.array(next_wall.pt2)
+            if np.dot(vec_1, vec_2):
+                return False
+        return True
 
     def xs(self):
-        return np.array([obstacle.xs() for obstacle in self.value]).ravel().tolist()
+        return np.array([wall.xs() for wall in self.walls]).ravel().tolist()
 
     def ys(self):
-        return np.array([obstacle.ys() for obstacle in self.value]).ravel().tolist()
+        return np.array([wall.ys() for wall in self.walls]).ravel().tolist()
 
     def xlim(self):
-        obstacle_xs = self.xs()
-        return min(obstacle_xs), max(obstacle_xs)
+        wall_xs = self.xs()
+        return min(wall_xs), max(wall_xs)
 
     def ylim(self):
-        obstacle_ys = np.array([obstacle.ys() for obstacle in self.value]).ravel()
-        return min(obstacle_ys), max(obstacle_ys)
+        wall_ys = np.array([wall.ys() for wall in self.walls]).ravel()
+        return min(wall_ys), max(wall_ys)
 
     def locations(self):
-        return [obstacle.location for obstacle in self.value]
+        return [wall.location for wall in self.walls]
 
     def grid_indices(self, grid: Grid) -> dict[Location, XYIndices]:
         """
         障害物の格子インデックスを取得する．
         """
 
-        obstacle_xmin, obstacle_xmax = self.xlim()
-        if obstacle_xmin < 0 or obstacle_xmax > grid.width:
+        wall_xmin, wall_xmax = self.xlim()
+        if wall_xmin < 0 or wall_xmax > grid.width:
             raise ValueError("格子の幅が足りない")
-        obstacle_ymin, obstacle_ymax = self.ylim()
-        if obstacle_ymin < 0 or obstacle_ymax > grid.height:
+        wall_ymin, wall_ymax = self.ylim()
+        if wall_ymin < 0 or wall_ymax > grid.height:
             raise ValueError("格子の高さが足りない")
 
-        grid_row_last_index = grid.calculate_grid_width() - 1
-        grid_col_last_index = grid.calculate_grid_height() - 1
+        grid_row_last_index = grid.calculate_grid_row_num() - 1
+        grid_col_last_index = grid.calculate_grid_col_num() - 1
 
-        obstacle_indecies: dict[Location, XYIndices] = {location: ([], []) for location in Location}
+        wall_indecies: dict[Location, XYIndices] = {location: ([], []) for location in Location}
 
-        for obstacle, next_obstacle in zip_longest(self.value, self.value[1:]):
-            if next_obstacle is None:
-                next_obstacle = self.value[0]
+        for wall, next_wall in zip_longest(self.walls, self.walls[1:]):
+            if next_wall is None:
+                next_wall = self.walls[0]
 
-            if obstacle.is_horizontal():
-                ys = obstacle.ys()
+            if wall.is_horizontal():
+                ys = wall.ys()
                 assert ys[0] == ys[1], "障害物が並行でない"
-                obstalce_xlim = sorted(obstacle.xs())
-                obstacle_index_xlim = [grid.calculate_grid_index(x) for x in obstalce_xlim]
-                xmin, xmax = obstacle_index_xlim
-                obstacle_indicies_x = list(range(xmin, xmax + 1))
-                obstacle_indicies_y = [grid.calculate_grid_index(ys[0])] * len(obstacle_indicies_x)
+                obstalce_xlim = sorted(wall.xs())
+                wall_index_xlim = [grid.calculate_grid_index(x) for x in obstalce_xlim]
+                xmin, xmax = wall_index_xlim
+                wall_indicies_x = list(range(xmin, xmax + 1))
+                wall_indicies_y = [grid.calculate_grid_index(ys[0])] * len(wall_indicies_x)
 
-            if obstacle.is_vertical():
-                xs = obstacle.xs()
+            if wall.is_vertical():
+                xs = wall.xs()
                 assert xs[0] == xs[1], "障害物が垂直でない"
-                obstalce_ylim = sorted(obstacle.ys())
-                obstacle_index_ylim = [grid.calculate_grid_index(y) for y in obstalce_ylim]
-                ymin, ymax = obstacle_index_ylim
-                obstacle_indicies_y = list(range(ymin, ymax + 1))
-                obstacle_indicies_x = [grid.calculate_grid_index(xs[0])] * len(obstacle_indicies_y)
+                obstalce_ylim = sorted(wall.ys())
+                wall_index_ylim = [grid.calculate_grid_index(y) for y in obstalce_ylim]
+                ymin, ymax = wall_index_ylim
+                wall_indicies_y = list(range(ymin, ymax + 1))
+                wall_indicies_x = [grid.calculate_grid_index(xs[0])] * len(wall_indicies_y)
 
-            if obstacle.is_right():
-                X, Y = obstacle_indecies[Location.RIGHT]
-            if obstacle.is_left():
-                X, Y = obstacle_indecies[Location.LEFT]
-            if obstacle.is_top():
-                X, Y = obstacle_indecies[Location.TOP]
-            if obstacle.is_bottom():
-                X, Y = obstacle_indecies[Location.BOTTOM]
+            if wall.is_right():
+                X, Y = wall_indecies[Location.RIGHT]
+            if wall.is_left():
+                X, Y = wall_indecies[Location.LEFT]
+            if wall.is_top():
+                X, Y = wall_indecies[Location.TOP]
+            if wall.is_bottom():
+                X, Y = wall_indecies[Location.BOTTOM]
 
-            X.extend(obstacle_indicies_x)
-            Y.extend(obstacle_indicies_y)
+            X.extend(wall_indicies_x)
+            Y.extend(wall_indicies_y)
 
-            if obstacle.is_right() and next_obstacle.is_top() and next_obstacle.is_leftward():
+            if wall.is_right() and next_wall.is_top() and next_wall.is_leftward():
                 """
                 ___
                    o <- この角
                    |
                    |
                 """
-                X, Y = obstacle_indecies[Location.RIGHTTOP]
-                X.append(obstacle_indicies_x[0])
-                Y.append(obstacle_indicies_y[0])
+                X, Y = wall_indecies[Location.RIGHTTOP]
+                X.append(wall_indicies_x[0])
+                Y.append(wall_indicies_y[0])
 
-            if obstacle.is_left() and next_obstacle.is_rightward() and next_obstacle.is_bottom():
+            if wall.is_left() and next_wall.is_rightward() and next_wall.is_bottom():
                 """
                 |
                 |
                 o____
                 ↑ この角
                 """
-                X, Y = obstacle_indecies[Location.LEFTBOTTOM]
-                X.append(obstacle_indicies_x[0])
-                Y.append(obstacle_indicies_y[-1])
+                X, Y = wall_indecies[Location.LEFTBOTTOM]
+                X.append(wall_indicies_x[0])
+                Y.append(wall_indicies_y[-1])
 
-            if obstacle.is_top() and next_obstacle.is_downward() and next_obstacle.is_left():
+            if wall.is_top() and next_wall.is_downward() and next_wall.is_left():
                 """
                 ___
                 o  <- この角
@@ -272,20 +296,20 @@ class Obstacles:
                 |
                 """
 
-                X, Y = obstacle_indecies[Location.LEFTTOP]
-                X.append(obstacle_indicies_x[0])
-                Y.append(obstacle_indicies_y[0])
-            if obstacle.is_bottom() and next_obstacle.is_upward() and next_obstacle.is_right():
+                X, Y = wall_indecies[Location.LEFTTOP]
+                X.append(wall_indicies_x[0])
+                Y.append(wall_indicies_y[0])
+            if wall.is_bottom() and next_wall.is_upward() and next_wall.is_right():
                 """
                    |
                    |
                 ___o <- この核
                 """
-                X, Y = obstacle_indecies[Location.RIGHTBOTTOM]
-                X.append(obstacle_indicies_x[-1])
-                Y.append(obstacle_indicies_y[0])
+                X, Y = wall_indecies[Location.RIGHTBOTTOM]
+                X.append(wall_indicies_x[-1])
+                Y.append(wall_indicies_y[0])
 
-        return obstacle_indecies
+        return wall_indecies
 
 
 class Strain(metaclass=ABCMeta):
@@ -299,7 +323,10 @@ class Strain(metaclass=ABCMeta):
         self.pt2 = pt2
         self.location = location
 
-    def grid_indices(self):
+    def grid_indices(self, grid: Grid):
+        """
+        ひずみの格子インデックスを取得する．
+        """
         pass
 
     @abstractmethod
@@ -312,8 +339,8 @@ class Wave:
         self.grid = grid
         self.values: np.ndarray = np.zeros(
             (
-                grid.calculate_grid_width(),
-                grid.calculate_grid_height(),
+                grid.calculate_grid_row_num(),
+                grid.calculate_grid_col_num(),
             )
         )
         self.pre_values = self.values.copy()
@@ -326,18 +353,18 @@ class Wave:
         x = np.linspace(
             0,
             self.grid.width,
-            self.grid.calculate_grid_width(),
+            self.grid.calculate_grid_row_num(),
         ).reshape(-1, 1)
         y = np.linspace(
             0,
             self.grid.height,
-            self.grid.calculate_grid_height(),
+            self.grid.calculate_grid_col_num(),
         )
         input_values = A * np.exp(-((x - x0) ** 2) * rad**2) * np.exp(-((y - y0) ** 2) * rad**2)
         self.values = self.values + input_values
         self.pre_values = self.pre_values + input_values
 
-    def update(self, obstacles: Obstacles | None = None, strain: Strain | None = None):
+    def update(self, obstacle: Obstacle | None = None, strain: Strain | None = None):
         uR = np.roll(self.values, -1, 1)
         uL = np.roll(self.values, 1, 1)
         uB = np.roll(self.values, -1, 0)
@@ -350,13 +377,13 @@ class Wave:
         indices_items = self.grid.boundary_indices()
 
         # 障害物が与えられれば障害物のインデックス群を取得して結合
-        if obstacles is not None:
-            obstacle_grid_indices = obstacles.grid_indices(self.grid)
+        if obstacle is not None:
+            obstacle_grid_indices = obstacle.grid_indices(self.grid)
             for location in Location:
                 X, Y = indices_items[location]
-                obstacle_X, obstacle_Y = obstacle_grid_indices[location]
-                X.extend(obstacle_X)
-                Y.extend(obstacle_Y)
+                wall_X, wall_Y = obstacle_grid_indices[location]
+                X.extend(wall_X)
+                Y.extend(wall_Y)
 
         # ひずみが与えられればひずみのインデックス群を取得して結合
         if strain is not None:
@@ -453,16 +480,16 @@ h = 0.01
 dt = 0.005
 grid = Grid(width, height, h, dt)
 
-obstacle_xs = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
-obstacle_ys = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
-obstacle_list = [
+wall_xs = [1, 2, 2, 3, 3, 4, 4, 3, 3, 2, 2, 1, 1]
+wall_ys = [2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 2]
+wall_list = [
     Obstacle((x0, y0), (x1, y1), location)
     for x0, y0, x1, y1, location in (
         zip(
-            obstacle_xs,
-            obstacle_ys,
-            obstacle_xs[1:],
-            obstacle_ys[1:],
+            wall_xs,
+            wall_ys,
+            wall_xs[1:],
+            wall_ys[1:],
             [
                 Location.BOTTOM,
                 Location.RIGHT,
@@ -480,14 +507,14 @@ obstacle_list = [
         )
     )
 ]
-obstacles = Obstacles(obstacle_list)
+obstacle = Obstacle(wall_list)
 
 wave = Wave(grid)
 wave.input_gauss(0, 0.5, 3)
 ims = []
 fig, ax = plt.subplots()
 for time in np.arange(0, 10 + dt, dt):
-    wave.update(obstacles)
+    wave.update(obstacle)
     ims.append([ax.imshow(wave.values.T, "binary")])
 anim = ArtistAnimation(fig, ims, interval=20)
 plt.show()
