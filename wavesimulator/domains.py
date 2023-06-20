@@ -135,9 +135,9 @@ class Strain(metaclass=ABCMeta):
         ...
 
 
-XIndecies = list[int]
-YIndecies = list[int]
-XYIndices = tuple[XIndecies, YIndecies]
+XIndices = list[int]
+YIndices = list[int]
+XYIndices = tuple[XIndices, YIndices]
 
 
 @dataclass(frozen=True)
@@ -354,6 +354,11 @@ class Grid:
 
 class Wave:
     def __init__(self, grid: Grid):
+        """
+        波．以下に列挙するメソッドは自身の状態を変更する副作用を持ち，返り値はない
+            update
+            input_gauss
+        """
         self.grid = grid
         self.values: np.ndarray = np.zeros(
             (
@@ -387,6 +392,10 @@ class Wave:
         self.pre_values = self.pre_values + input_values
 
     def update(self, obstacles: list[Obstacle] | None = None, strains: list[Strain] | None = None):
+        """
+        返り値なし．このメソッドは自身の状態を変更する．
+        """
+
         uR = np.roll(self.values, -1, 1)
         uL = np.roll(self.values, 1, 1)
         uB = np.roll(self.values, -1, 0)
@@ -409,100 +418,28 @@ class Wave:
                     Y.extend(wall_Y)
 
         # 右端
-        X, Y = np.array(indices_items[Location.RIGHT])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha
-                * (2 * self.values[X - 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
-            )
-            o_idxes = X + 1 < self.values.shape[0]
-            new_values[X[o_idxes] + 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処
+        self._reflect_from_right(new_values, indices_items[Location.RIGHT])
 
         # 左端
-        X, Y = np.array(indices_items[Location.LEFT])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha
-                * (2 * self.values[X + 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
-            )
-            o_idxes = X > 0
-            new_values[X[o_idxes] - 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_left(new_values, indices_items[Location.LEFT])
 
         # 上端
-        X, Y = np.array(indices_items[Location.TOP])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha
-                * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
-            )
-            o_idxes = Y > 0
-            new_values[X[o_idxes], Y[o_idxes] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_top(new_values, indices_items[Location.TOP])
 
         # 下端
-        X, Y = np.array(indices_items[Location.BOTTOM])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha
-                * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
-            )
-            o_idxes = Y + 1 < self.values.shape[1]
-            new_values[X[o_idxes], Y[o_idxes] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_bottom(new_values, indices_items[Location.BOTTOM])
 
         # 左上端
-        X, Y = np.array(indices_items[Location.LEFTTOP])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
-            )
-            o_idxes_1, o_idxes_2 = X > 0, Y > 0
-            new_values[X[o_idxes_1] - 1, Y[o_idxes_1]] = 0
-            new_values[X[o_idxes_2], Y[o_idxes_2] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_lefttop(new_values, indices_items[Location.LEFTTOP])
 
         # 右上
-        X, Y = np.array(indices_items[Location.RIGHTTOP])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
-            )
-            o_idxes_1, o_idxes_2 = X + 1 < self.values.shape[0], Y > 0
-            new_values[X[o_idxes_1] + 1, Y[o_idxes_1]] = 0
-            new_values[X[o_idxes_2], Y[o_idxes_2] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_righttop(new_values, indices_items[Location.RIGHTTOP])
 
         # 右下
-        X, Y = np.array(indices_items[Location.RIGHTBOTTOM])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
-            )
-            o_idxes_1, o_idxes_2 = X + 1 < self.values.shape[0], Y + 1 < self.values.shape[1]
-            new_values[X[o_idxes_1] + 1, Y[o_idxes_1]] = 0
-            new_values[X[o_idxes_2], Y[o_idxes_2] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_rightbottom(new_values, indices_items[Location.RIGHTBOTTOM])
 
         # 左下
-        X, Y = np.array(indices_items[Location.LEFTBOTTOM])
-        if len(X):
-            new_values[X, Y] = (
-                2 * self.values[X, Y]
-                - self.pre_values[X, Y]
-                + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
-            )
-            o_idxes_1, o_idxes_2 = X > 0, Y + 1 < self.values.shape[1]
-            new_values[X[o_idxes_1] - 1, Y[o_idxes_1]] = 0
-            new_values[X[o_idxes_2], Y[o_idxes_2] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+        self._reflect_from_leftbottom(new_values, indices_items[Location.LEFTBOTTOM])
 
         # ひずみが与えられればひずみ拘束条件の計算を加える (現時点で左と上のひずみのみ)
         if strains is not None:
@@ -515,36 +452,144 @@ class Wave:
                     X.extend(strain_X)
                     Y.extend(strain_Y)
 
-            X, Y = np.array(strain_indices_items[Location.LEFT])
-            if len(X):
-                new_values[X, Y] = (
-                    2 * self.values[X, Y]
-                    - self.pre_values[X, Y]
-                    + self.grid.alpha
-                    * (
-                        self.values[X + 1, Y]
-                        + self.values[X, Y + 1]
-                        + self.values[X, Y - 1]
-                        - 4 * self.values[X, Y]
-                        - 2 * self.grid.h * strain.input(X, Y, self.time)
-                    )
-                )
-
-            X, Y = np.array(strain_indices_items[Location.TOP])
-            if len(X):
-                new_values[X, Y] = (
-                    2 * self.values[X, Y]
-                    - self.pre_values[X, Y]
-                    + self.grid.alpha
-                    * (
-                        self.values[X + 1, Y]
-                        + self.values[X - 1, Y]
-                        + self.values[X, Y + 1]
-                        - 4 * self.values[X, Y]
-                        - 2 * self.grid.h * strain.input(X, Y, self.time)
-                    )
-                )
+            # 左のひずみ
+            self._reflect_from_leftstrain(new_values, strain_indices_items[Location.LEFT], strain)
+            # 上のひずみ
+            self._reflect_from_topstrain(new_values, strain_indices_items[Location.TOP], strain)
 
         self.pre_values = self.values
         self.values = new_values
         self.time += self.grid.dt
+
+    def _reflect_from_right(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        """
+        このメソッドを含む reflect ~ のメソッドは与えられた引数 (inplaced_values) を変更する.
+        """
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (2 * self.values[X - 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = X + 1 < self.values.shape[0]
+            inplaced_values[X[o_idxes] + 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_left(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (2 * self.values[X + 1, Y] + self.values[X, Y - 1] + self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = X > 0
+            inplaced_values[X[o_idxes] - 1, Y[o_idxes]] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_top(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = Y > 0
+            inplaced_values[X[o_idxes], Y[o_idxes] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_bottom(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (self.values[X - 1, Y] + self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
+            )
+            o_idxes = Y + 1 < self.values.shape[1]
+            inplaced_values[X[o_idxes], Y[o_idxes] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_righttop(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            X, Y = np.array(xyindices)
+            o_idxes_1, o_idxes_2 = X + 1 < self.values.shape[0], Y > 0
+            X, Y = np.array(xyindices)
+            inplaced_values[X[o_idxes_1] + 1, Y[o_idxes_1]] = 0
+            inplaced_values[X[o_idxes_2], Y[o_idxes_2] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_lefttop(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y + 1] - 4 * self.values[X, Y])
+            )
+            o_idxes_1, o_idxes_2 = X > 0, Y > 0
+            inplaced_values[X[o_idxes_1] - 1, Y[o_idxes_1]] = 0
+            inplaced_values[X[o_idxes_2], Y[o_idxes_2] - 1] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_rightbottom(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X - 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
+            )
+            o_idxes_1, o_idxes_2 = X + 1 < self.values.shape[0], Y + 1 < self.values.shape[1]
+            inplaced_values[X[o_idxes_1] + 1, Y[o_idxes_1]] = 0
+            inplaced_values[X[o_idxes_2], Y[o_idxes_2] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_leftbottom(self, inplaced_values: np.ndarray, xyindices: XYIndices):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha * (2 * self.values[X + 1, Y] + 2 * self.values[X, Y - 1] - 4 * self.values[X, Y])
+            )
+            o_idxes_1, o_idxes_2 = X > 0, Y + 1 < self.values.shape[1]
+            inplaced_values[X[o_idxes_1] - 1, Y[o_idxes_1]] = 0
+            inplaced_values[X[o_idxes_2], Y[o_idxes_2] + 1] = 0  # 障害物内部に波が侵入しないようにする処理
+
+    def _reflect_from_leftstrain(self, inplaced_values: np.ndarray, xyindices: XYIndices, strain: Strain):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (
+                    self.values[X + 1, Y]
+                    + self.values[X, Y + 1]
+                    + self.values[X, Y - 1]
+                    - 4 * self.values[X, Y]
+                    - 2 * self.grid.h * strain.input(X, Y, self.time)
+                )
+            )
+
+    def _reflect_from_topstrain(self, inplaced_values: np.ndarray, xyindices: XYIndices, strain: Strain):
+        X, Y = np.array(xyindices)
+        if len(X):
+            inplaced_values[X, Y] = (
+                2 * self.values[X, Y]
+                - self.pre_values[X, Y]
+                + self.grid.alpha
+                * (
+                    self.values[X + 1, Y]
+                    + self.values[X - 1, Y]
+                    + self.values[X, Y + 1]
+                    - 4 * self.values[X, Y]
+                    - 2 * self.grid.h * strain.input(X, Y, self.time)
+                )
+            )

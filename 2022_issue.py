@@ -74,7 +74,14 @@ observation_values: list[float] = []
 
 for time in times:
     wave.update(obstacles, strains)
-    im = ax.imshow(wave.get_values().T, "binary", vmin=-0.01, vmax=0.01, extent=[0, WIDTH, 0, HEIGHT], origin="lower")
+    im = ax.imshow(
+        wave.get_values().T,
+        "binary",
+        vmin=-0.01,
+        vmax=0.01,
+        extent=[0, WIDTH, 0, HEIGHT],
+        origin="lower",
+    )
     title = ax.text(
         0.5,
         1.01,
@@ -97,8 +104,8 @@ anim = ArtistAnimation(fig, ims, interval=10)
 
 plt.show()
 
-output_dir_name = "2022_result"
-os.makedirs(output_dir_name, exist_ok=True)
-anim.save(os.path.join(output_dir_name, "2022_issue.gif"))
-fig_2.savefig(os.path.join(output_dir_name, "grid.png"))
-fig_3.savefig(os.path.join(output_dir_name, "input.png"))
+# output_dir_name = "2022_result"
+# os.makedirs(output_dir_name, exist_ok=True)
+# anim.save(os.path.join(output_dir_name, "2022_issue.gif"))
+# fig_2.savefig(os.path.join(output_dir_name, "grid.png"))
+# fig_3.savefig(os.path.join(output_dir_name, "input.png"))
