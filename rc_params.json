@@ -1,0 +1,22 @@
+{
+    "figure": {
+        "figsize": [10, 5], 
+        "subplot.hspace": 0.5
+        
+    }, 
+    "font": {
+        "family": "Arial", 
+        "size": 15,
+        "weight": "bold"
+    }, 
+    "axes": {
+        "titleweight": "bold",
+        "labelweight": "bold"
+    },
+    "xtick": {
+        "direction": "in"
+    }, 
+    "ytick": {
+        "direction": "in"
+    }
+}
