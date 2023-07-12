@@ -10,9 +10,6 @@ from wavesimulator import Wave, Wall, Grid, Strain, Location, Obstacle, utils
 
 
 class CosineStrain(Strain):
-    def __init__(self, wall: Wall):
-        super().__init__(wall)
-
     def input(self, x: float, y: float, t: float) -> float:
         f = 3
         return np.cos(2 * np.pi * f * t) if t <= 3 * (1 / f) else 0
@@ -64,8 +61,8 @@ strains = [strain]
 wave = Wave(grid)
 
 fig, ax = plt.subplots()
-fig_2, ax_2 = utils.create_visualized_subplots(wave, obstacles, strains)
-fig_3, ax_3 = plt.subplots()
+grid_fig, grid_ax = utils.create_visualized_subplots(wave, obstacles, strains)
+input_fig, input_ax = plt.subplots()
 
 ims = []
 times = np.arange(0, OBSERVATION_TIME + DT, DT)
@@ -97,9 +94,9 @@ ax.invert_yaxis()
 for obstacle in obstacles:
     ax.plot(obstacle.xs(), obstacle.ys(), color="k")
 
-fig_2.legend(ncol=6, loc="upper center")
-ax_3.plot(times, [strain.input(0.0, 0.0, t) for t in times], color="k")
-ax_3.set(title="input", xlabel="Time")
+grid_fig.legend(ncol=6, loc="upper center")
+input_ax.plot(times, [strain.input(0.0, 0.0, t) for t in times], color="k")
+input_ax.set(title="input", xlabel="Time")
 anim = ArtistAnimation(fig, ims, interval=10)
 
 plt.show()
@@ -107,5 +104,5 @@ plt.show()
 # output_dir_name = "2022_result"
 # os.makedirs(output_dir_name, exist_ok=True)
 # anim.save(os.path.join(output_dir_name, "2022_issue.gif"))
-# fig_2.savefig(os.path.join(output_dir_name, "grid.png"))
-# fig_3.savefig(os.path.join(output_dir_name, "input.png"))
+# grid_fig.savefig(os.path.join(output_dir_name, "grid.png"))
+# input_fig.savefig(os.path.join(output_dir_name, "input.png"))

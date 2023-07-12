@@ -10,9 +10,6 @@ from wavesimulator import Wave, Wall, Grid, Strain, Location, Obstacle, utils
 
 
 class GaussStrain(Strain):
-    def __init__(self, wall: Wall):
-        super().__init__(wall)
-
     def input(self, x: float, y: float, t: float) -> float:
         A = 1.0
         peak_time = 1.0
@@ -63,11 +60,26 @@ strain_1 = GaussStrain(Wall((0, 0), (0, height / 4), Location.LEFT))
 strain_2 = GaussStrain(Wall((0, 0), (height / 4, 0), Location.TOP))
 strains = [strain_1, strain_2]
 
+""" 
+wall座標図
+                   2_1
+ ________________________________
+|                  |              |
+|  1_1 ______ 1_2  |              |
+|     |      |     |______________|
+|     |      |    2_2             | 2_3
+|     |______|                    |
+|  1_4        1_3                 |
+|                                 |
+|_________________________________|
+
+"""
+
 wave = Wave(grid)
 
 fig, axes = plt.subplots(2, 1)
-fig_2, ax_2 = utils.create_visualized_subplots(wave, obstacles, strains)
-fig_3, ax_3 = plt.subplots()
+grid_fig, grid_ax = utils.create_visualized_subplots(wave, obstacles, strains)
+input_fig, input_ax = plt.subplots()
 
 ims = []
 times = np.arange(0, OBSERVATION_TIME + DT, DT)
@@ -101,9 +113,9 @@ axes[0].annotate(
 )
 axes[1].set(title="Observation value", xlabel="Time")
 
-fig_2.legend(ncol=6, loc="upper center")
-ax_3.plot(times, strain_1.input(0.0, 0.0, times), color="k")
-ax_3.set(title="input", xlabel="Time")
+grid_fig.legend(ncol=6, loc="upper center")
+input_ax.plot(times, strain_1.input(0.0, 0.0, times), color="k")
+input_ax.set(title="input", xlabel="Time")
 anim = ArtistAnimation(fig, ims, interval=10)
 
 plt.show()
@@ -111,5 +123,5 @@ plt.show()
 # output_dir_name = "2023_result"
 # os.makedirs(output_dir_name, exist_ok=True)
 # anim.save(os.path.join(output_dir_name, "2023_issue.gif"))
-# fig_2.savefig(os.path.join(output_dir_name, "grid.png"))
-# fig_3.savefig(os.path.join(output_dir_name, "input.png"))
+# grid_fig.savefig(os.path.join(output_dir_name, "grid.png"))
+# input_fig.savefig(os.path.join(output_dir_name, "input.png"))
