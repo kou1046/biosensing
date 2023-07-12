@@ -1,2 +1,2 @@
-from .domains import Grid, Wave, Obstacle, Strain, Location, Wall
-from . import utils
+from .domain import *
+from .utils import create_visualized_subplots

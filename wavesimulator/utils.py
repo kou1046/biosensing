@@ -1,19 +1,18 @@
 from __future__ import annotations
 import matplotlib.pyplot as plt
-from . import domains
-
+from . import domain
 
 corner_color = ["purple"]
 corner_label = ["corner"]
-color_map = {location: color for location, color in zip(domains.Location, ["r", "b", "y", "g"] + corner_color * 4)}
+color_map = {location: color for location, color in zip(domain.Location, ["r", "b", "y", "g"] + corner_color * 4)}
 label_map = {
     location: label
-    for location, label in zip(domains.Location, ["right", "left", "top", "bottom"] + corner_label + [None, None, None])
+    for location, label in zip(domain.Location, ["right", "left", "top", "bottom"] + corner_label + [None, None, None])
 }
 
 
 def create_visualized_subplots(
-    wave: domains.Wave, obstacles: list[domains.Obstacle] | None = None, strains: list[domains.Strain] | None = None
+    wave: domain.Wave, obstacles: list[domain.Obstacle] | None = None, strains: list[domain.Strain] | None = None
 ):
     fig, ax = plt.subplots()
     ax.invert_yaxis()
@@ -24,7 +23,7 @@ def create_visualized_subplots(
     if obstacles is not None:
         for obstacle in obstacles:
             obstacle_indices = wave.grid.calculate_obstacle_indices(obstacle)
-            for location in domains.Location:
+            for location in domain.Location:
                 X, Y = indices_map[location]
                 wall_X, wall_Y = obstacle_indices[location]
                 X.extend(wall_X)
